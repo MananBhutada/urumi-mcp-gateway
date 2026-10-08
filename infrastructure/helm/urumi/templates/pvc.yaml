@@ -1,0 +1,12 @@
+{{- range $n, $size := dict "mysql" .Values.storage.mysql "wordpress" .Values.storage.wordpress "postgres" .Values.storage.postgres }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: {{ $n }}-data}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if $.Values.storage.className }}
+  storageClassName: {{ $.Values.storage.className }}
+  {{- end }}
+  resources: {requests: {storage: {{ $size }}}}
+{{- end }}

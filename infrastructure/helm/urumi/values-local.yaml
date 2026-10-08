@@ -1,0 +1,5 @@
+# k3d: `k3d cluster create urumi -p "80:80@loadbalancer"`; add hosts entries (see docs)
+ingress:
+  className: traefik
+  storeHost: store.urumi.local
+  dashboardHost: dashboard.urumi.local

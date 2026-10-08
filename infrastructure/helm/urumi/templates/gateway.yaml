@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: gateway, labels: {app: gateway}}
+spec:
+  replicas: {{ .Values.replicas.gateway }}
+  selector: {matchLabels: {app: gateway}}
+  template:
+    metadata: {labels: {app: gateway}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      containers:
+        - name: gateway
+          image: {{ .Values.images.gateway }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - name: DATABASE_URL
+              value: "postgresql+psycopg2://urumi:$(PG_PW)@postgres:5432/urumi"
+            - {name: PG_PW, valueFrom: {secretKeyRef: {name: urumi-secrets, key: postgres-password}}}
+            - {name: SECRET_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: gateway-secret-key}}}
+            - {name: BOOTSTRAP_ADMIN_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: bootstrap-admin-key}}}
+            - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: anthropic-api-key}}}
+            - {name: WOO_MCP_TOKEN, valueFrom: {secretKeyRef: {name: urumi-secrets, key: woo-mcp-token}}}
+            - name: SEED_SERVERS
+              value: '[{"name":"woocommerce","url":"http://woo-mcp:8000/mcp","credential_env":"WOO_MCP_TOKEN"},{"name":"weather","url":"http://weather-mcp:8000/mcp"},{"name":"currency","url":"http://currency-mcp:8000/mcp"}]'
+          ports: [{containerPort: 8000}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8000}, initialDelaySeconds: 5, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: 8000}, initialDelaySeconds: 15, periodSeconds: 20}
+          resources: {{ toYaml .Values.resources.small | nindent 12 }}
+          securityContext: {allowPrivilegeEscalation: false}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: gateway}
+spec: {selector: {app: gateway}, ports: [{port: 8000}]}

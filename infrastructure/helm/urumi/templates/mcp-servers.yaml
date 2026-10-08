@@ -1,0 +1,36 @@
+{{- $mcps := dict "woo-mcp" .Values.images.wooMcp "weather-mcp" .Values.images.weatherMcp "currency-mcp" .Values.images.currencyMcp }}
+{{- range $name, $image := $mcps }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: {{ $name }}, labels: {app: {{ $name }}}}
+spec:
+  replicas: {{ $.Values.replicas.mcp }}
+  selector: {matchLabels: {app: {{ $name }}}}
+  template:
+    metadata: {labels: {app: {{ $name }}, tier: mcp}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      containers:
+        - name: {{ $name }}
+          image: {{ $image }}
+          imagePullPolicy: {{ $.Values.images.pullPolicy }}
+          ports: [{containerPort: 8000}]
+          {{- if eq $name "woo-mcp" }}
+          env:
+            - {name: MCP_AUTH_TOKEN, valueFrom: {secretKeyRef: {name: urumi-secrets, key: woo-mcp-token}}}
+            - {name: WOO_BASE_URL, value: "http://wordpress"}
+            - {name: WOO_HOST_HEADER, value: {{ $.Values.ingress.storeHost | quote }}}
+            - {name: WOO_CONSUMER_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: woo-ck}}}
+            - {name: WOO_CONSUMER_SECRET, valueFrom: {secretKeyRef: {name: urumi-secrets, key: woo-cs}}}
+          {{- end }}
+          readinessProbe: {tcpSocket: {port: 8000}, initialDelaySeconds: 5, periodSeconds: 10}
+          livenessProbe: {tcpSocket: {port: 8000}, initialDelaySeconds: 15, periodSeconds: 20}
+          resources: {{ toYaml $.Values.resources.small | nindent 12 }}
+          securityContext: {allowPrivilegeEscalation: false}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: {{ $name }}}
+spec: {selector: {app: {{ $name }}}, ports: [{port: 8000, targetPort: 8000}]}
+{{- end }}

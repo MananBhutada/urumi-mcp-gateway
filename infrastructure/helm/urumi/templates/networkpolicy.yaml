@@ -1,0 +1,40 @@
+{{- if .Values.networkPolicies }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny-ingress}
+spec: {podSelector: {}, policyTypes: [Ingress]}
+{{- range $t := list
+  (dict "name" "allow-ingress-controller" "to" "wordpress" "from" (dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" "kube-system"))))
+  (dict "name" "allow-ingress-dashboard" "to" "dashboard" "from" (dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" "kube-system"))))
+  (dict "name" "allow-woo-mcp-to-wordpress" "to" "wordpress" "from" (dict "podSelector" (dict "matchLabels" (dict "app" "woo-mcp"))))
+  (dict "name" "allow-wpsetup-to-mysql" "to" "mysql" "from" (dict "podSelector" (dict "matchLabels" (dict "app" "wordpress"))))
+  (dict "name" "allow-gateway-to-postgres" "to" "postgres" "from" (dict "podSelector" (dict "matchLabels" (dict "app" "gateway"))))
+  (dict "name" "allow-dashboard-to-gateway" "to" "gateway" "from" (dict "podSelector" (dict "matchLabels" (dict "app" "dashboard")))) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: {{ $t.name }}}
+spec:
+  podSelector: {matchLabels: {app: {{ $t.to }}}}
+  policyTypes: [Ingress]
+  ingress: [{from: [{{ toJson $t.from }}]}]
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-gateway-to-mcp}
+spec:
+  podSelector: {matchLabels: {tier: mcp}}
+  policyTypes: [Ingress]
+  ingress: [{from: [{podSelector: {matchLabels: {app: gateway}}}]}]
+{{- end }}
+{{- if .Values.networkPolicies }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-same-namespace-to-mysql}
+spec:
+  podSelector: {matchLabels: {app: mysql}}
+  policyTypes: [Ingress]
+  ingress: [{from: [{podSelector: {}}]}]
+{{- end }}

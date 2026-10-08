@@ -1,0 +1,15 @@
+# k3s VPS. Same templates; only these values change. Pass secrets with --set / sealed secrets.
+ingress:
+  className: traefik
+  storeHost: store.YOURDOMAIN.com
+  dashboardHost: app.YOURDOMAIN.com
+  tlsSecret: urumi-tls
+storage: {className: local-path, mysql: 10Gi, wordpress: 10Gi, postgres: 5Gi}
+replicas: {gateway: 2, dashboard: 2, mcp: 1}
+images:
+  pullPolicy: Always
+  gateway: ghcr.io/YOURUSER/urumi-gateway:0.1.0
+  dashboard: ghcr.io/YOURUSER/urumi-dashboard:0.1.0
+  wooMcp: ghcr.io/YOURUSER/urumi-woo-mcp:0.1.0
+  weatherMcp: ghcr.io/YOURUSER/urumi-weather-mcp:0.1.0
+  currencyMcp: ghcr.io/YOURUSER/urumi-currency-mcp:0.1.0

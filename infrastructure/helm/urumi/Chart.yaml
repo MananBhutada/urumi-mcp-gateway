@@ -1,0 +1,5 @@
+apiVersion: v2
+name: urumi
+description: Urumi MCP Gateway platform (WooCommerce + MCP servers + gateway + dashboard)
+version: 0.1.0
+appVersion: "0.1.0"
