@@ -1,4 +1,5 @@
-# k3s VPS. Same templates; only these values change. Pass secrets with --set / sealed secrets.
+# k3s VPS. Supply secrets via --set-string or an external secret manager.
+appEnv: production
 ingress:
   className: traefik
   storeHost: store.YOURDOMAIN.com
@@ -13,3 +14,16 @@ images:
   wooMcp: ghcr.io/YOURUSER/urumi-woo-mcp:0.1.0
   weatherMcp: ghcr.io/YOURUSER/urumi-weather-mcp:0.1.0
   currencyMcp: ghcr.io/YOURUSER/urumi-currency-mcp:0.1.0
+
+# Replace placeholders and provide unique values; never commit production secrets.
+# Example:
+# helm upgrade --install urumi ./infrastructure/helm/urumi -f ./infrastructure/helm/urumi/values-prod.yaml \
+#   --set-string secrets.gatewaySecretKey="$GATEWAY_SECRET_KEY" \
+#   --set-string secrets.bootstrapAdminKey="$BOOTSTRAP_ADMIN_KEY" \
+#   --set-string secrets.mysqlRootPassword="$MYSQL_ROOT_PASSWORD" \
+#   --set-string secrets.mysqlPassword="$MYSQL_PASSWORD" \
+#   --set-string secrets.postgresPassword="$POSTGRES_PASSWORD" \
+#   --set-string secrets.wpAdminPassword="$WP_ADMIN_PASSWORD" \
+#   --set-string secrets.wooConsumerKey="$WOO_CONSUMER_KEY" \
+#   --set-string secrets.wooConsumerSecret="$WOO_CONSUMER_SECRET" \
+#   --set-string secrets.wooMcpToken="$WOO_MCP_TOKEN"
