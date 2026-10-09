@@ -45,3 +45,9 @@ def test_production_config_fails_closed(monkeypatch):
     import pytest
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
         config.validate_runtime_config()
+
+
+def test_root_cause_unwraps_nested_exception_groups():
+    from app.mcp.client import _root_cause
+    inner = ConnectionError("refused")
+    assert _root_cause(BaseExceptionGroup("a", [ExceptionGroup("b", [inner])])) is inner
