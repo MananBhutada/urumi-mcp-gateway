@@ -5,6 +5,8 @@ ingress:
   storeHost: store.YOURDOMAIN.com
   dashboardHost: app.YOURDOMAIN.com
   tlsSecret: urumi-tls
+wordpress:
+  scheme: https
 storage: {className: local-path, mysql: 10Gi, wordpress: 10Gi, postgres: 5Gi}
 replicas: {gateway: 2, dashboard: 2, mcp: 1}
 images:
