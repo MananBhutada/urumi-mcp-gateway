@@ -59,3 +59,11 @@ Note: the uploaded zip contained **no `.git` directory**, so no commits were mad
 - Added docs/assessment-gap-matrix.md as the rubric-to-evidence tracker.
 
 **Important:** These are changes committed on branch hardening/assessment-gaps. They have not been executed in this environment. Re-run pytest tests/gateway, helm lint, helm template for local and production values, then perform the real k3d/storefront and external MCP-client gates before treating them as verified.
+
+
+## MCP protocol boundary hardening (2026-10-09)
+
+- The gateway MCP endpoint now validates JSON-RPC envelopes and reports parse errors (-32700), invalid requests (-32600), unknown methods (-32601), and invalid tool-call parameters (-32602) instead of allowing malformed input to bubble into server errors.
+- Initialization responds with a supported protocol version; common MCP notifications are acknowledged without JSON-RPC response bodies.
+- Regression tests cover request shape, parse errors, unsupported methods and malformed tool-call parameters.
+- Not yet verified against MCP Inspector/Cursor, and tests have not been run in this environment. The gateway remains a deliberately stateless JSON-response implementation; live Streamable HTTP client compatibility is still a required assessment gate.
