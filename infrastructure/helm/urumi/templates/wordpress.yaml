@@ -18,8 +18,8 @@ spec:
             - {name: WORDPRESS_DB_PASSWORD, valueFrom: {secretKeyRef: {name: urumi-secrets, key: mysql-password}}}
             - name: WORDPRESS_CONFIG_EXTRA
               value: |
-                define('WP_HOME','http://{{ .Values.ingress.storeHost }}');
-                define('WP_SITEURL','http://{{ .Values.ingress.storeHost }}');
+                define('WP_HOME','{{ .Values.wordpress.scheme }}://{{ .Values.ingress.storeHost }}');
+                define('WP_SITEURL','{{ .Values.wordpress.scheme }}://{{ .Values.ingress.storeHost }}');
                 if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO']==='https') { $_SERVER['HTTPS']='on'; }
           ports: [{containerPort: 80}]
           readinessProbe: {tcpSocket: {port: 80}, initialDelaySeconds: 10, periodSeconds: 10}
@@ -59,7 +59,7 @@ spec:
               until [ -f wp-config.php ]; do echo waiting for wp-config; sleep 3; done
               until wp db check >/dev/null 2>&1; do echo waiting for db; sleep 3; done
               if ! wp core is-installed; then
-                wp core install --url="http://{{ .Values.ingress.storeHost }}" --title="Urumi Store" \
+                wp core install --url="{{ .Values.wordpress.scheme }}://{{ .Values.ingress.storeHost }}" --title="Urumi Store" \
                   --admin_user=admin --admin_password="$WP_ADMIN_PW" --admin_email=admin@urumi.local --skip-email
               fi
               wp plugin is-installed woocommerce || wp plugin install woocommerce --activate
