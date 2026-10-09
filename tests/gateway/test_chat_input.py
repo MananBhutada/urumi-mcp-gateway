@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+# The gateway package lives under services/gateway, while CI runs pytest from
+# the repository root. Add that service root before importing its app package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "services" / "gateway"))
+
 import pytest
 from pydantic import ValidationError
 
