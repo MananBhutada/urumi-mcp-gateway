@@ -11,6 +11,9 @@ ingress:
   storeHost: store.urumi.local
   dashboardHost: dashboard.urumi.local
   tlsSecret: ""
+wordpress:
+  # Use https when TLS is terminated at the Ingress in production.
+  scheme: http
 storage:
   className: ""
   mysql: 2Gi
