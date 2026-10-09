@@ -134,7 +134,7 @@ def create_invitation(b: InviteIn, db: Session = Depends(get_db), admin: User = 
 def accept_invitation(b: AcceptInviteIn, db: Session = Depends(get_db)):
     if not b.token or len(b.token) > 256:
         raise HTTPException(400, "invalid invitation token")
-    inv = db.query(Invitation).filter_by(token_hash=hash_key(b.token)).first()
+    inv = db.query(Invitation).filter_by(token_hash=hash_key(b.token)).with_for_update().first()
     now = int(time.time())
     if not inv or inv.accepted_at is not None or inv.expires_at <= now:
         raise HTTPException(400, "invitation is invalid, expired, or already used")
