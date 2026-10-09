@@ -33,6 +33,8 @@ def fail(message, code=1):
 def call(method, path, payload=None, query=None):
     if not BASE.startswith(("http://", "https://")) or not CK or not CS:
         fail("Set WOO_BASE_URL, WOO_CONSUMER_KEY and WOO_CONSUMER_SECRET")
+    if BASE.startswith("http://") and os.environ.get("WOO_ALLOW_INSECURE_HTTP") != "1":
+        fail("Refusing to send REST credentials over HTTP; use HTTPS or explicitly set WOO_ALLOW_INSECURE_HTTP=1 for a disposable local cluster")
     params = dict(query or {})
     params.update({"consumer_key": CK, "consumer_secret": CS})
     url = f"{BASE}/wp-json/wc/v3{path}?{urllib.parse.urlencode(params)}"
