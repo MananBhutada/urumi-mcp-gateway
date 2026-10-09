@@ -54,7 +54,7 @@ Note: the uploaded zip contained **no `.git` directory**, so no commits were mad
 - Upstream URL validation now runs at registration, periodic health refresh and immediately before a tool call. This is defense in depth, not a full SSRF solution: in-cluster DNS is allowed, so production egress/network policy and hostname allowlisting remain important.
 - Production startup checks reject weak/default gateway secrets, weak bootstrap admin keys and SQLite.
 - Helm passes APP_ENV explicitly; production values enable the strict checks. Shared values.yaml no longer has reusable credentials; disposable values are in values-local.yaml.
-- Team invitation API added: admin creates a seven-day token; acceptance is one-time and creates a member/admin account plus an API key returned once. Email delivery and dashboard invite UI are still missing.
+- Team invitation API and basic dashboard UI added: admin creates a seven-day token and copyable fragment link; acceptance is one-time and creates a member/admin account plus an API key returned once. Email delivery is still missing.
 - Added test coverage for URL validation, production config checks and invitation acceptance.
 - Added docs/assessment-gap-matrix.md as the rubric-to-evidence tracker.
 
