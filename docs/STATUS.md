@@ -47,3 +47,15 @@ Note: the uploaded zip contained **no `.git` directory**, so no commits were mad
   `pytest tests/gateway` -> 5 passed.
 - Item 5 partial: `GET /mcp` on the gateway returns **405** (good). Inspector/Cursor/Claude Code still untested.
 - Remember: weather/currency servers still have no inbound auth (NetworkPolicy only); mockwoo is run with uvicorn, not `python mockwoo.py`.
+
+
+## Hardening branch changes (2026-10-09; not yet locally executed)
+
+- Upstream URL validation now runs at registration, periodic health refresh and immediately before a tool call. This is defense in depth, not a full SSRF solution: in-cluster DNS is allowed, so production egress/network policy and hostname allowlisting remain important.
+- Production startup checks reject weak/default gateway secrets, weak bootstrap admin keys and SQLite.
+- Helm passes APP_ENV explicitly; production values enable the strict checks. Shared values.yaml no longer has reusable credentials; disposable values are in values-local.yaml.
+- Team invitation API added: admin creates a seven-day token; acceptance is one-time and creates a member/admin account plus an API key returned once. Email delivery and dashboard invite UI are still missing.
+- Added test coverage for URL validation, production config checks and invitation acceptance.
+- Added docs/assessment-gap-matrix.md as the rubric-to-evidence tracker.
+
+**Important:** These are changes committed on branch hardening/assessment-gaps. They have not been executed in this environment. Re-run pytest tests/gateway, helm lint, helm template for local and production values, then perform the real k3d/storefront and external MCP-client gates before treating them as verified.
