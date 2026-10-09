@@ -5,13 +5,14 @@ images:
   weatherMcp: urumi/weather-mcp:latest
   currencyMcp: urumi/currency-mcp:latest
   pullPolicy: IfNotPresent
+appEnv: development
 ingress:
   className: traefik
   storeHost: store.urumi.local
   dashboardHost: dashboard.urumi.local
-  tlsSecret: ""            # set in prod (cert-manager / manual)
+  tlsSecret: ""
 storage:
-  className: ""            # "" = cluster default (local-path on k3d/k3s)
+  className: ""
   mysql: 2Gi
   wordpress: 2Gi
   postgres: 1Gi
@@ -19,16 +20,16 @@ replicas: {gateway: 1, dashboard: 1, mcp: 1}
 resources:
   small: {requests: {cpu: 50m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
   db: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1000m, memory: 1Gi}}
-# Dev defaults ONLY. Override via --set or an external secret in prod (see values-prod.yaml).
+# Intentionally empty in shared defaults. Set unique values locally or via an external secret manager.
 secrets:
-  mysqlRootPassword: rootpass
-  mysqlPassword: wppass
-  postgresPassword: pgpass
-  gatewaySecretKey: change-me-gateway-secret
-  bootstrapAdminKey: urumi_live_bootstrap_admin_key_change_me
-  wpAdminPassword: admin123
-  wooConsumerKey: ck_0123456789abcdef0123456789abcdef01234567
-  wooConsumerSecret: cs_0123456789abcdef0123456789abcdef01234567
-  wooMcpToken: woo-mcp-internal-token
+  mysqlRootPassword: ""
+  mysqlPassword: ""
+  postgresPassword: ""
+  gatewaySecretKey: ""
+  bootstrapAdminKey: ""
+  wpAdminPassword: ""
+  wooConsumerKey: ""
+  wooConsumerSecret: ""
+  wooMcpToken: ""
   anthropicApiKey: ""
 networkPolicies: true

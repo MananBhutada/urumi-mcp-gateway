@@ -22,14 +22,42 @@ function Servers({ admin }: { admin: boolean }) {
 }
 function Tools() { const [t, setT] = useState<Any[]>([]); useEffect(() => { api("/api/tools").then(setT); }, []);
   return <div>{t.map(x => <div key={x.name} style={box}><b>{x.name}</b><div>{x.description}</div></div>)}</div>; }
-function Team() { const [u, setU] = useState<Any[]>([]); const [f, setF] = useState({ email: "", name: "", role: "MEMBER" }); const [shown, setShown] = useState("");
-  const load = () => api("/api/users").then(setU); useEffect(() => { load(); }, []);
-  return <div>{shown && <div style={{ ...box, background: "#ffd" }}>New key (shown once): <code>{shown}</code></div>}
-    {u.map(x => <div key={x.id} style={box}><b>{x.email}</b> [{x.role}] {x.keys.map((k: Any) => <span key={k.id}> · {k.prefix}… {k.revoked ? "(revoked)" : <button onClick={() => api(`/api/keys/${k.id}/revoke`, "POST").then(load)}>Revoke</button>}</span>)}
-      <button style={{ float: "right" }} onClick={() => api(`/api/users/${x.id}/keys`, "POST").then(r => { setShown(r.api_key); load(); })}>New API key</button></div>)}
-    <div style={box}><input placeholder="email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} /><input placeholder="name" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+function Team() {
+  const [u, setU] = useState<Any[]>([]);
+  const [f, setF] = useState({ email: "", name: "", role: "MEMBER" });
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("MEMBER");
+  const [inviteToken, setInviteToken] = useState("");
+  const [shown, setShown] = useState("");
+  const [error, setError] = useState("");
+  const load = () => api("/api/users").then(setU).catch(e => setError(e.message));
+  useEffect(() => { load(); }, []);
+  return <div>
+    {error && <div style={{ ...box, color: "#a00" }}>{error}</div>}
+    {shown && <div style={{ ...box, background: "#ffd" }}>New API key (shown once): <code>{shown}</code></div>}
+    {inviteToken && <div style={{ ...box, background: "#ffd" }}>
+      <b>One-time invitation link (expires in 7 days)</b>
+      <p>Share this link securely. The invitation token is shown only in this session.</p>
+      <input style={{ width: "95%" }} readOnly value={window.location.origin + window.location.pathname + "#invite=" + encodeURIComponent(inviteToken)} />
+      <button onClick={() => { navigator.clipboard?.writeText(window.location.origin + window.location.pathname + "#invite=" + encodeURIComponent(inviteToken)); }}>Copy invite link</button>
+      <button onClick={() => setInviteToken("")}>Dismiss</button>
+    </div>}
+    {u.map(x => <div key={x.id} style={box}><b>{x.email}</b> [{x.role}] {x.keys.map((k: Any) => <span key={k.id}> · {k.prefix}… {k.revoked ? "(revoked)" : <button onClick={() => api("/api/keys/" + k.id + "/revoke", "POST").then(load)}>Revoke</button>}</span>)}
+      <button style={{ float: "right" }} onClick={() => api("/api/users/" + x.id + "/keys", "POST").then(r => { setShown(r.api_key); load(); }).catch(e => setError(e.message))}>New API key</button></div>)}
+    <div style={box}><b>Invite teammate</b><br />
+      <input placeholder="teammate@example.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
+      <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}><option>MEMBER</option><option>ADMIN</option></select>
+      <button onClick={() => { setError(""); api("/api/invitations", "POST", { email: inviteEmail, role: inviteRole }).then(r => { setInviteToken(r.invite_token); setInviteEmail(""); }).catch(e => setError(e.message)); }}>Create invitation</button>
+    </div>
+    <div style={box}><b>Add user directly</b><br />
+      <input placeholder="email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
+      <input placeholder="name" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
       <select value={f.role} onChange={e => setF({ ...f, role: e.target.value })}><option>MEMBER</option><option>ADMIN</option></select>
-      <button onClick={() => api("/api/users", "POST", f).then(load)}>Add user</button></div></div>; }
+      <button onClick={() => api("/api/users", "POST", f).then(() => { setF({ email: "", name: "", role: "MEMBER" }); load(); }).catch(e => setError(e.message))}>Add user</button>
+    </div>
+  </div>;
+}
+
 function Audit() { const [a, setA] = useState<Any[]>([]); useEffect(() => { const l = () => api("/api/audit").then(setA); l(); const t = setInterval(l, 5000); return () => clearInterval(t); }, []);
   return <table cellPadding={6}><thead><tr><th>time</th><th>user</th><th>server</th><th>tool</th><th>src</th><th>ms</th><th>ok</th><th>error</th></tr></thead>
     <tbody>{a.map(r => <tr key={r.id}><td>{r.started_at.slice(11, 19)}</td><td>{r.user}</td><td>{r.server}</td><td>{r.tool}</td><td>{r.source}</td><td>{r.duration_ms}</td><td>{r.success ? "✓" : "✗"}</td><td>{r.error}</td></tr>)}</tbody></table>; }
@@ -43,11 +71,34 @@ function Chat() { const [m, setM] = useState<Any[]>([]); const [i, setI] = useSt
       <button disabled={busy} onClick={send}>Send</button></div></div>; }
 
 export default function App() {
-  const [me, setMe] = useState<Any>(null); const [tab, setTab] = useState("servers"); const [k, setK] = useState("");
+  const [me, setMe] = useState<Any>(null);
+  const [tab, setTab] = useState("servers");
+  const [k, setK] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const inviteToken = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("invite");
+
   useEffect(() => { if (getKey()) api("/api/me").then(setMe).catch(() => {}); }, []);
+
+  if (!me && inviteToken) return <div style={{ padding: 40, fontFamily: "sans-serif", maxWidth: 520 }}>
+    <h2>Join Urumi Gateway</h2>
+    <p>Complete your invitation to create your account and receive your API key.</p>
+    <input style={{ width: "95%" }} placeholder="Your name" value={inviteName} onChange={e => setInviteName(e.target.value)} />
+    {inviteError && <p style={{ color: "#a00" }}>{inviteError}</p>}
+    <button disabled={inviteBusy} onClick={() => {
+      setInviteBusy(true); setInviteError("");
+      api("/api/invitations/accept", "POST", { token: inviteToken, name: inviteName })
+        .then(r => { setKey(r.api_key); setMe(r.user); window.history.replaceState({}, "", window.location.pathname + window.location.search); })
+        .catch(e => setInviteError(e.message))
+        .finally(() => setInviteBusy(false));
+    }}>{inviteBusy ? "Accepting..." : "Accept invitation"}</button>
+  </div>;
+
   if (!me) return <div style={{ padding: 40, fontFamily: "sans-serif" }}><h2>Urumi Gateway</h2>
     <input style={{ width: 360 }} type="password" placeholder="API key (urumi_live_…)" value={k} onChange={e => setK(e.target.value)} />
     <button onClick={() => { setKey(k); api("/api/me").then(setMe).catch(() => alert("invalid key")); }}>Sign in</button></div>;
+
   const admin = me.role === "ADMIN";
   const tabs = ["servers", "tools", ...(admin ? ["team", "audit"] : []), "chat"];
   return <div style={{ fontFamily: "sans-serif", maxWidth: 1000, margin: "20px auto" }}>

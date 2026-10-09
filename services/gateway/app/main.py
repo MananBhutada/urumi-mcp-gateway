@@ -11,7 +11,9 @@ from .mcp.server import api as mcp_api
 from .api.admin import api as admin_api
 from .api.chat import api as chat_api
 
+
 def bootstrap():
+    validate_runtime_config()
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         if BOOTSTRAP_ADMIN_KEY and not db.query(User).filter_by(email=BOOTSTRAP_ADMIN_EMAIL).first():
@@ -22,6 +24,7 @@ def bootstrap():
                 db.add(McpServer(name=s["name"], url=s["url"], credential_encrypted=encrypt(s.get("credential") or os.getenv(s.get("credential_env", ""), ""))))
         db.commit()
 
+
 @asynccontextmanager
 async def lifespan(app):
     bootstrap()
@@ -29,8 +32,11 @@ async def lifespan(app):
     yield
     task.cancel()
 
+
 app = FastAPI(title="Urumi MCP Gateway", lifespan=lifespan)
 app.include_router(mcp_api); app.include_router(admin_api); app.include_router(chat_api)
 
+
 @app.get("/healthz")
-def healthz(): return {"ok": True}
+def healthz():
+    return {"ok": True}
