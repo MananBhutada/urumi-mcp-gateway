@@ -67,3 +67,12 @@ Note: the uploaded zip contained **no `.git` directory**, so no commits were mad
 - Initialization responds with a supported protocol version; common MCP notifications are acknowledged without JSON-RPC response bodies.
 - Regression tests cover request shape, parse errors, unsupported methods and malformed tool-call parameters.
 - Not yet verified against MCP Inspector/Cursor, and tests have not been run in this environment. The gateway remains a deliberately stateless JSON-response implementation; live Streamable HTTP client compatibility is still a required assessment gate.
+
+
+## WooCommerce integration hardening (2026-10-09)
+
+- Product creation now validates and normalizes the name, decimal price, and allowed product status. New products default to `draft`; publishing must be explicit with `status="publish"`.
+- Order IDs are validated as positive integers; order response projection tolerates missing billing data and only returns selected fields. Search and description inputs are bounded.
+- Woo REST client now validates its configured base URL/path and credentials, applies a configurable bounded timeout, handles connection/timeout/invalid-JSON failures, and does not echo upstream response bodies into tool errors.
+- Added isolated regression tests under `tests/woo_mcp` and a separate CI job for them.
+- **Not yet verified:** no CI run has been observed for this branch, and this is not proof of a real WooCommerce store or Kubernetes checkout flow. The next acceptance gate remains running CI, then deploying the WordPress/WooCommerce chart and testing REST tools plus a real COD checkout/order in wp-admin.
