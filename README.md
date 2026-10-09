@@ -29,7 +29,7 @@ MCP client config (Cursor / Inspector): URL http://dashboard.urumi.local/mcp, he
 Use values-prod.yaml and provide unique secrets through a secret manager or deployment-time secret injection. The production gateway refuses to start with a weak gateway secret, a weak bootstrap admin key, or SQLite. Do not commit real credentials or a populated production values file.
 
 ## Team invitations
-An admin can create a seven-day, one-time invitation with POST /api/invitations using the admin bearer key and JSON body such as {"email":"member@example.com","role":"MEMBER"}. The response contains a one-time invite_token to place in your invitation link or share securely. The invitee accepts with POST /api/invitations/accept and {"token":"...","name":"..."}. Acceptance creates a user and returns a new API key once. Email delivery and a polished invite-acceptance screen are not yet implemented; the API is ready for that UI integration.
+An admin can create a seven-day, one-time invitation with POST /api/invitations using the admin bearer key and JSON body such as {"email":"member@example.com","role":"MEMBER"}. The response contains a one-time invite_token to place in your invitation link or share securely. The invitee accepts with POST /api/invitations/accept and {"token":"...","name":"..."}. Acceptance creates a user and returns a new API key once. Email delivery is not implemented; the invitee completes acceptance in the dashboard using the link fragment.
 
 ## Run gateway without Kubernetes (fast loop)
 ```bash
