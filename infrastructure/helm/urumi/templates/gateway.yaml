@@ -13,6 +13,7 @@ spec:
           image: {{ .Values.images.gateway }}
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           env:
+            - {name: APP_ENV, value: {{ .Values.appEnv | default "development" | quote }}}
             - name: DATABASE_URL
               value: "postgresql+psycopg2://urumi:$(PG_PW)@postgres:5432/urumi"
             - {name: PG_PW, valueFrom: {secretKeyRef: {name: urumi-secrets, key: postgres-password}}}
