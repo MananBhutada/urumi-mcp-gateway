@@ -69,4 +69,14 @@ jobs:
             grep -q "claimName: mysql-data" "$manifest"
             grep -q "claimName: wordpress-data" "$manifest"
             grep -q "claimName: postgres-data" "$manifest"
+            if grep -q "name: allow-same-namespace-to-mysql" "$manifest"; then
+              echo "MySQL must not allow every pod in the namespace"; exit 1
+            fi
+            for policy in gateway dashboard woo-mcp wordpress wp-setup weather-mcp currency-mcp; do
+              grep -q "name: allow-egress-$policy" "$manifest" || { echo "Missing egress policy: $policy"; exit 1; }
+            done
+            for database in mysql postgres; do
+              grep -q "name: deny-egress-$database" "$manifest" || { echo "Missing database egress deny: $database"; exit 1; }
+            done
+            grep -q "app: wp-setup" "$manifest" || { echo "WordPress setup Job label is missing"; exit 1; }
           done

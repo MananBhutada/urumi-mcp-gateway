@@ -1,5 +1,8 @@
 # k3s VPS. Supply secrets via --set-string or an external secret manager.
 appEnv: production
+llm:
+  baseUrl: https://openrouter.ai/api/v1
+  model: openrouter/free
 ingress:
   className: traefik
   storeHost: store.YOURDOMAIN.com
@@ -20,6 +23,9 @@ images:
 # Replace placeholders and provide unique values; never commit production secrets.
 # Example:
 # helm upgrade --install urumi ./infrastructure/helm/urumi -f ./infrastructure/helm/urumi/values-prod.yaml \
+#   --set llm.baseUrl="https://openrouter.ai/api/v1" \
+#   --set llm.model="YOUR_TOOL_CALLING_MODEL" \
+#   --set-file secrets.llmApiKey="./secure/llm-api-key.txt" \
 #   --set-string secrets.gatewaySecretKey="$GATEWAY_SECRET_KEY" \
 #   --set-string secrets.bootstrapAdminKey="$BOOTSTRAP_ADMIN_KEY" \
 #   --set-string secrets.mysqlRootPassword="$MYSQL_ROOT_PASSWORD" \
@@ -29,3 +35,5 @@ images:
 #   --set-string secrets.wooConsumerKey="$WOO_CONSUMER_KEY" \
 #   --set-string secrets.wooConsumerSecret="$WOO_CONSUMER_SECRET" \
 #   --set-string secrets.wooMcpToken="$WOO_MCP_TOKEN"
+# Helm stores these values in release data. The chart creates its Secret from
+# values; configure external-secret integration before relying on a managed Secret.

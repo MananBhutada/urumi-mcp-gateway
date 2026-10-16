@@ -11,6 +11,74 @@ def test_key_hash_roundtrip():
     assert raw.startswith("urumi_live_") and h == hash_key(raw) and raw not in h
 
 
+def test_user_from_token_rejects_unknown_and_revoked_keys():
+    import pytest
+    from fastapi import HTTPException
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+    from app.db.session import Base
+    from app.models.tables import ApiKey, User
+    from app.auth.rbac import user_from_token
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        user = User(email="admin@example.com", role="ADMIN")
+        db.add(user)
+        db.flush()
+        active_key = "urumi_live_active_key_for_test"
+        revoked_key = "urumi_live_revoked_key_for_test"
+        db.add(ApiKey(user_id=user.id, key_hash=hash_key(active_key), key_prefix=active_key[:14]))
+        db.add(ApiKey(user_id=user.id, key_hash=hash_key(revoked_key), key_prefix=revoked_key[:14], revoked=True))
+        db.commit()
+
+        assert user_from_token(db, active_key).email == "admin@example.com"
+        with pytest.raises(HTTPException) as unknown:
+            user_from_token(db, "urumi_live_unknown_key_for_test")
+        assert unknown.value.status_code == 401
+        with pytest.raises(HTTPException) as revoked:
+            user_from_token(db, revoked_key)
+        assert revoked.value.status_code == 401
+
+
+def test_bootstrap_does_not_replace_existing_admin_key(monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app import main
+    from app.db.session import Base
+    from app.models.tables import ApiKey, User
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    old_key = "urumi_live_existing_admin_key_for_test"
+    replacement_key = "urumi_live_replacement_admin_key_for_test"
+    with factory() as db:
+        admin = User(email="admin@example.com", name="Admin", role="ADMIN")
+        db.add(admin)
+        db.flush()
+        db.add(ApiKey(user_id=admin.id, key_hash=hash_key(old_key), key_prefix=old_key[:14]))
+        db.commit()
+
+    monkeypatch.setattr(main, "engine", engine)
+    monkeypatch.setattr(main, "SessionLocal", factory)
+    monkeypatch.setattr(main, "BOOTSTRAP_ADMIN_KEY", replacement_key)
+    monkeypatch.setattr(main, "BOOTSTRAP_ADMIN_EMAIL", "admin@example.com")
+    monkeypatch.setattr(main, "SEED_SERVERS", [])
+    monkeypatch.setattr(main, "validate_runtime_config", lambda: None)
+
+    main.bootstrap()
+
+    with factory() as db:
+        assert db.query(User).filter_by(email="admin@example.com").count() == 1
+        keys = db.query(ApiKey).filter_by(user_id=db.query(User).filter_by(email="admin@example.com").one().id).all()
+        assert len(keys) == 1
+        assert keys[0].key_hash == hash_key(old_key)
+        assert keys[0].key_hash != hash_key(replacement_key)
+
+
 def test_encrypt():
     assert decrypt(encrypt("secret")) == "secret" and "secret" not in encrypt("secret")
 
@@ -18,6 +86,125 @@ def test_encrypt():
 def test_namespacing():
     assert namespace("weather", "get_weather") == "weather__get_weather"
     assert split("woocommerce__list_products") == ("woocommerce", "list_products")
+
+
+def test_tool_permissions_default_deny_members_and_preserve_admin_access(monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+    from app.db.session import Base
+    from app.models.tables import ToolPermission, User
+    from app.auth.rbac import tool_allowed
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        assert tool_allowed(db, "MEMBER", "weather__get_weather") is False
+        assert tool_allowed(db, "ADMIN", "weather__get_weather") is True
+
+        db.add(ToolPermission(role="MEMBER", tool="weather__get_weather", allowed=True))
+        db.add(ToolPermission(role="MEMBER", tool="currency__list_rates", allowed=False))
+        db.commit()
+        assert tool_allowed(db, "MEMBER", "weather__get_weather") is True
+        assert tool_allowed(db, "MEMBER", "currency__list_rates") is False
+
+
+def test_tool_catalog_uses_request_database_session_and_shared_registry(monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+    from app.db.session import Base
+    from app.models.tables import McpServer, McpToolCache, ToolPermission, User
+    from app.routing import router
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        member = User(email="member@example.com", role="MEMBER")
+        db.add(member)
+        db.add(McpServer(name="weather", url="http://weather-mcp:8000/mcp", enabled=True))
+        db.add(ToolPermission(role="MEMBER", tool="weather__get_weather", allowed=True))
+        db.add(McpToolCache(server_name="weather", tools_json=[{
+            "name": "get_weather", "description": "Current weather", "inputSchema": {"type": "object"}
+        }]))
+        db.commit()
+
+        monkeypatch.setattr(router, "SessionLocal", lambda: (_ for _ in ()).throw(AssertionError("opened another DB session")))
+        assert [tool["name"] for tool in router.tools_for(member, db)] == ["weather__get_weather"]
+        server = db.query(McpServer).filter_by(name="weather").one()
+        server.enabled = False
+        db.commit()
+        assert router.tools_for(member, db) == []
+
+
+def test_ungranted_member_tool_call_is_denied_before_upstream(monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db.session import Base
+    from app.models.tables import McpServer, User
+    from app.routing import router
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with Session(engine) as db:
+        member = User(email="member@example.com", role="MEMBER")
+        db.add(member)
+        db.add(McpServer(name="weather", url="http://weather-mcp:8000/mcp", enabled=True))
+        db.commit()
+        db.refresh(member)
+
+    audited = []
+    monkeypatch.setattr(router, "SessionLocal", factory)
+    monkeypatch.setattr(router.audit, "record", lambda *args, **kwargs: audited.append((args, kwargs)))
+    async def unexpected_call(*args, **kwargs):
+        raise AssertionError("upstream must not be called for a denied tool")
+    monkeypatch.setattr(router.client, "call_tool", unexpected_call)
+
+    import asyncio
+    result = asyncio.run(router.execute(member, "weather__get_weather", {"city": "Pune"}))
+    assert result["isError"] is True
+    assert "may not call" in result["content"][0]["text"]
+    assert len(audited) == 1
+    assert audited[0][0][5] is False
+
+
+def test_upstream_refresh_persists_and_clears_shared_tool_catalog(monkeypatch):
+    import asyncio
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db.session import Base
+    from app.models.tables import McpServer, McpToolCache
+    from app.routing import router
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with Session(engine) as db:
+        server = McpServer(name="weather", url="http://weather-mcp:8000/mcp", enabled=True)
+        db.add(server)
+        db.commit()
+        server_id = server.id
+
+    monkeypatch.setattr(router, "SessionLocal", factory)
+    async def list_tools(*args):
+        return [{"name": "get_weather", "description": "Current weather", "inputSchema": {"type": "object"}}]
+    monkeypatch.setattr(router.client, "list_tools", list_tools)
+    asyncio.run(router.refresh_server(server_id))
+    with Session(engine) as db:
+        cache = db.get(McpToolCache, "weather")
+        assert cache.tools_json[0]["name"] == "get_weather"
+        assert db.get(McpServer, server_id).status == "connected"
+
+    async def failed_list(*args):
+        raise TimeoutError("upstream unavailable")
+    monkeypatch.setattr(router.client, "list_tools", failed_list)
+    asyncio.run(router.refresh_server(server_id))
+    with Session(engine) as db:
+        assert db.get(McpToolCache, "weather") is None
+        assert db.get(McpServer, server_id).status == "unreachable"
 
 
 def test_ssrf():

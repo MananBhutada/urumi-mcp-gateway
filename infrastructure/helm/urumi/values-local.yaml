@@ -1,5 +1,8 @@
 # Local-only disposable credentials for the demo cluster. Never reuse these in production.
 appEnv: development
+llm:
+  baseUrl: https://openrouter.ai/api/v1
+  model: openrouter/free
 ingress:
   className: traefik
   storeHost: store.urumi.local
@@ -14,4 +17,4 @@ secrets:
   wooConsumerKey: ck_local_demo_only
   wooConsumerSecret: cs_local_demo_only
   wooMcpToken: local-woo-mcp-token-only
-  anthropicApiKey: ""
+  llmApiKey: ""

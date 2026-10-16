@@ -5,7 +5,7 @@
 | Stolen DB leaks user API keys | HMAC-SHA256 hashes stored; raw key shown once | Rotate the gateway secret carefully; add key expiry and rate limits |
 | Upstream credential exposure | Fernet-encrypted at rest; credential write-only in admin API | Rotate encryption secret and upstream credentials operationally |
 | Member escalates to admin operations | Admin dependencies protect mutation endpoints | Add automated endpoint-by-endpoint authorization tests |
-| Member calls a hidden tool directly | Permission checked in execution path as well as tool listing | Unconfigured role/tool pairs currently default-allow; configure explicit denials and consider default-deny after migration/UX support |
+| Member calls a hidden tool directly | Permission checked in execution path as well as tool listing; missing role/tool rows default-deny | Admin must explicitly allow each tool a member role should use |
 | SSRF through upstream registration or a modified DB row | URL validation runs on registration, health refresh and before tool calls; non-HTTP(S), embedded URL credentials, metadata hostnames and selected unsafe IP ranges are rejected | Private service DNS is intentionally allowed in-cluster; hostname allowlisting and DNS-rebinding-resistant egress enforcement remain necessary for hostile/multi-tenant admin scenarios |
 | Lateral movement in Kubernetes | NetworkPolicies, non-root workload settings, no public Service for MCP/DB | Must verify rendered policies and live traffic on a real cluster |
 | Slow or unavailable upstream | Connection/call timeouts, per-call sessions, failures isolated by upstream | Add rate limits, circuit breakers and concurrency caps |

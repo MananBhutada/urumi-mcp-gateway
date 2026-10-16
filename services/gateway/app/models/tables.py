@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, UniqueConstraint
+from sqlalchemy import String, Integer, Boolean, ForeignKey, DateTime, Text, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from ..db.session import Base
 
@@ -51,8 +51,16 @@ class McpServer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class McpToolCache(Base):
+    """Last successful tool catalog shared by all gateway replicas via the DB."""
+    __tablename__ = "mcp_tool_cache"
+    server_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tools_json: Mapped[list] = mapped_column(JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
 class ToolPermission(Base):
-    """Per-role tool allow/deny on the namespaced tool name. No row => allowed."""
+    """Per-role tool allow/deny on the namespaced tool name. No row => denied."""
     __tablename__ = "tool_permissions"
     __table_args__ = (UniqueConstraint("role", "tool"),)
     id: Mapped[int] = mapped_column(primary_key=True)

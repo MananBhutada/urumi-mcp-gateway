@@ -3,16 +3,30 @@ enforce per-role tool permissions, audit every call."""
 import asyncio, ipaddress, time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from ..config import CONNECT_TIMEOUT, CALL_TIMEOUT
 from ..db.session import SessionLocal
-from ..models.tables import McpServer, User
+from ..models.tables import McpServer, McpToolCache, User
 from ..auth.api_keys import decrypt
 from ..auth.rbac import tool_allowed
 from ..audit import service as audit
 from ..mcp import client
 from .collisions import namespace, split
 
-TOOL_CACHE: dict[str, list[dict]] = {}   # server name -> raw tools (only for healthy servers)
+
+def _store_tool_catalog(db, server_name: str, tools: list[dict]) -> None:
+    """Upsert the shared catalog so concurrent gateway refreshes are safe."""
+    dialect = db.get_bind().dialect.name
+    insert = {"postgresql": postgres_insert, "sqlite": sqlite_insert}.get(dialect)
+    if insert is None:
+        raise RuntimeError(f"unsupported tool catalog database: {dialect}")
+    statement = insert(McpToolCache).values(server_name=server_name, tools_json=tools)
+    statement = statement.on_conflict_do_update(
+        index_elements=[McpToolCache.server_name],
+        set_={"tools_json": tools, "updated_at": datetime.now(timezone.utc)},
+    )
+    db.execute(statement)
 
 
 def validate_url(url: str):
@@ -47,14 +61,20 @@ async def refresh_server(srv_id: int):
         s = db.get(McpServer, srv_id)
         if not s: return
         if not s.enabled:
-            s.status, s.last_error = "disabled", ""; TOOL_CACHE.pop(s.name, None); db.commit(); return
+            s.status, s.last_error = "disabled", ""
+            cache = db.get(McpToolCache, s.name)
+            if cache: db.delete(cache)
+            db.commit(); return
         try:
             # Revalidate stored URLs, not only URLs entered through the admin API.
             validate_url(s.url)
             tools = await client.list_tools(s.url, decrypt(s.credential_encrypted), CONNECT_TIMEOUT)
-            TOOL_CACHE[s.name] = tools; s.status, s.last_error = "connected", ""
+            _store_tool_catalog(db, s.name, tools)
+            s.status, s.last_error = "connected", ""
         except Exception as e:  # isolate: never propagate across upstreams
-            TOOL_CACHE.pop(s.name, None); s.status, s.last_error = "unreachable", str(e)[:300]
+            cache = db.get(McpToolCache, s.name)
+            if cache: db.delete(cache)
+            s.status, s.last_error = "unreachable", str(e)[:300]
         db.commit()
 
 
@@ -71,16 +91,17 @@ async def health_loop(interval: float):
         await asyncio.sleep(interval)
 
 
-def tools_for(user: User) -> list[dict]:
+def tools_for(user: User, db) -> list[dict]:
+    """Build discovery from the same registry DB session used by the request."""
     out = []
-    with SessionLocal() as db:
-        enabled = {s.name for s in db.query(McpServer).filter_by(enabled=True).all()}
-        for server, tools in TOOL_CACHE.items():
-            if server not in enabled: continue
-            for t in tools:
-                n = namespace(server, t["name"])
-                if tool_allowed(db, user.role, n):
-                    out.append({"name": n, "description": f"[{server}] {t['description']}", "inputSchema": t["inputSchema"]})
+    rows = (db.query(McpServer.name, McpToolCache.tools_json)
+            .join(McpToolCache, McpToolCache.server_name == McpServer.name)
+            .filter(McpServer.enabled.is_(True)).all())
+    for server, tools in rows:
+        for t in tools:
+            n = namespace(server, t["name"])
+            if tool_allowed(db, user.role, n):
+                out.append({"name": n, "description": f"[{server}] {t['description']}", "inputSchema": t["inputSchema"]})
     return out
 
 

@@ -11,7 +11,9 @@ res = []
 a = httpx.Client(base_url=BASE, headers=H(ADMIN), timeout=30)
 uid = a.post("/api/users", json={"email": f"b{int(time.time())}@urumi.local", "name": "Member B", "role": "MEMBER"}).json()["id"]
 kb = a.post(f"/api/users/{uid}/keys").json()["api_key"]
-res.append(ok("member B key lists tools", len(names(kb)) > 0, len(names(kb))))
+res.append(ok("member has no implicit tool grants", names(kb) == []))
+a.put("/api/permissions", json={"role": "MEMBER", "tool": "woocommerce__list_orders", "allowed": True})
+res.append(ok("explicitly granted tool is listed", "woocommerce__list_orders" in names(kb)))
 res.append(ok("member cannot use admin API", httpx.get(f"{BASE}/api/users", headers=H(kb)).status_code == 403))
 # permissions: deny create_product to MEMBER
 a.put("/api/permissions", json={"role": "MEMBER", "tool": "woocommerce__create_product", "allowed": False})

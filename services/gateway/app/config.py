@@ -9,8 +9,9 @@ SEED_SERVERS = json.loads(os.getenv("SEED_SERVERS", "[]"))
 CONNECT_TIMEOUT = float(os.getenv("UPSTREAM_TIMEOUT", "5"))
 CALL_TIMEOUT = float(os.getenv("UPSTREAM_CALL_TIMEOUT", "30"))
 HEALTH_INTERVAL = float(os.getenv("HEALTH_INTERVAL", "15"))
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CHAT_MODEL = os.getenv("CHAT_MODEL", "claude-sonnet-5-5")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip()
+LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
+LLM_MODEL = os.getenv("LLM_MODEL", "").strip()
 
 
 def validate_runtime_config():

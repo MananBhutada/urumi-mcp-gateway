@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, setKey, getKey } from "./api";
+import { api, ApiError, isGatewayApiKey, setKey, getKey } from "./api";
 
 type Any = any;
 const box: React.CSSProperties = { border: "1px solid #ddd", borderRadius: 6, padding: 12, margin: "8px 0" };
@@ -24,6 +24,9 @@ function Tools() { const [t, setT] = useState<Any[]>([]); useEffect(() => { api(
   return <div>{t.map(x => <div key={x.name} style={box}><b>{x.name}</b><div>{x.description}</div></div>)}</div>; }
 function Team() {
   const [u, setU] = useState<Any[]>([]);
+  const [permissionTools, setPermissionTools] = useState<Any[]>([]);
+  const [memberPermissions, setMemberPermissions] = useState<Record<string, boolean>>({});
+  const [savingPermission, setSavingPermission] = useState("");
   const [f, setF] = useState({ email: "", name: "", role: "MEMBER" });
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("MEMBER");
@@ -31,7 +34,19 @@ function Team() {
   const [shown, setShown] = useState("");
   const [error, setError] = useState("");
   const load = () => api("/api/users").then(setU).catch(e => setError(e.message));
-  useEffect(() => { load(); }, []);
+  const loadPermissions = () => Promise.all([api("/api/tools"), api("/api/permissions")]).then(([tools, rows]) => {
+    setPermissionTools(tools);
+    setMemberPermissions(Object.fromEntries(rows.filter((row: Any) => row.role === "MEMBER").map((row: Any) => [row.tool, row.allowed])));
+  }).catch(e => setError(e.message));
+  const setToolPermission = async (tool: string, allowed: boolean) => {
+    setSavingPermission(tool); setError("");
+    try {
+      await api("/api/permissions", "PUT", { role: "MEMBER", tool, allowed });
+      setMemberPermissions(previous => ({ ...previous, [tool]: allowed }));
+    } catch (e: Any) { setError(e.message); }
+    finally { setSavingPermission(""); }
+  };
+  useEffect(() => { load(); loadPermissions(); }, []);
   return <div>
     {error && <div style={{ ...box, color: "#a00" }}>{error}</div>}
     {shown && <div style={{ ...box, background: "#ffd" }}>New API key (shown once): <code>{shown}</code></div>}
@@ -48,6 +63,14 @@ function Team() {
       <input placeholder="teammate@example.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
       <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}><option>MEMBER</option><option>ADMIN</option></select>
       <button onClick={() => { setError(""); api("/api/invitations", "POST", { email: inviteEmail, role: inviteRole }).then(r => { setInviteToken(r.invite_token); setInviteEmail(""); }).catch(e => setError(e.message)); }}>Create invitation</button>
+    </div>
+    <div style={box}><b>Member tool access</b>
+      <p>Members can use only tools explicitly allowed here. Administrators retain access to all tools.</p>
+      {permissionTools.map(tool => <label key={tool.name} style={{ display: "block", padding: 4 }}>
+        <input type="checkbox" checked={memberPermissions[tool.name] === true} disabled={savingPermission === tool.name}
+          onChange={e => setToolPermission(tool.name, e.target.checked)} /> {tool.name}
+      </label>)}
+      {permissionTools.length === 0 && <small>No upstream tools are currently available.</small>}
     </div>
     <div style={box}><b>Add user directly</b><br />
       <input placeholder="email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
@@ -74,12 +97,29 @@ export default function App() {
   const [me, setMe] = useState<Any>(null);
   const [tab, setTab] = useState("servers");
   const [k, setK] = useState("");
+  const [authError, setAuthError] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState("");
   const inviteToken = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("invite");
 
-  useEffect(() => { if (getKey()) api("/api/me").then(setMe).catch(() => {}); }, []);
+  useEffect(() => {
+    const savedKey = getKey();
+    if (!savedKey) return;
+    if (!isGatewayApiKey(savedKey)) {
+      setKey("");
+      setAuthError("The saved value is not a Urumi Gateway API key. Provider keys cannot sign in here.");
+      return;
+    }
+    api("/api/me").then(setMe).catch((error: Any) => {
+      if (error instanceof ApiError && error.status === 401) {
+        setKey("");
+        setAuthError("Saved Gateway API key is invalid or revoked. Sign in with a valid Urumi Gateway API key.");
+      } else {
+        setAuthError("Could not verify the saved Gateway API key. Check the connection and try again.");
+      }
+    });
+  }, []);
 
   if (!me && inviteToken) return <div style={{ padding: 40, fontFamily: "sans-serif", maxWidth: 520 }}>
     <h2>Join Urumi Gateway</h2>
@@ -96,8 +136,27 @@ export default function App() {
   </div>;
 
   if (!me) return <div style={{ padding: 40, fontFamily: "sans-serif" }}><h2>Urumi Gateway</h2>
-    <input style={{ width: 360 }} type="password" placeholder="API key (urumi_live_…)" value={k} onChange={e => setK(e.target.value)} />
-    <button onClick={() => { setKey(k); api("/api/me").then(setMe).catch(() => alert("invalid key")); }}>Sign in</button></div>;
+    <label htmlFor="gateway-api-key">Gateway API key (not the LLM provider key)</label><br />
+    <input id="gateway-api-key" style={{ width: 360 }} type="password" placeholder="Urumi Gateway API key" value={k} onChange={e => setK(e.target.value)} />
+    <button onClick={() => {
+      setAuthError("");
+      if (!isGatewayApiKey(k)) {
+        setAuthError("Enter a Urumi Gateway API key beginning with urumi_live_. OpenRouter/provider keys cannot sign in here.");
+        return;
+      }
+      api("/api/me", "GET", undefined, k).then((user: Any) => {
+        setKey(k);
+        setMe(user);
+      }).catch((error: Any) => {
+        if (error instanceof ApiError && error.status === 401) {
+          setAuthError("Invalid Urumi Gateway API key. This is separate from your OpenRouter/LLM provider key.");
+        } else {
+          setAuthError("Could not verify the Gateway API key. Check the connection and try again.");
+        }
+      });
+    }}>Sign in</button>
+    {authError && <p role="alert" style={{ color: "#a00" }}>{authError}</p>}
+  </div>;
 
   const admin = me.role === "ADMIN";
   const tabs = ["servers", "tools", ...(admin ? ["team", "audit"] : []), "chat"];

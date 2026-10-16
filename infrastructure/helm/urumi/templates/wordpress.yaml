@@ -45,6 +45,7 @@ metadata:
 spec:
   backoffLimit: 6
   template:
+    metadata: {labels: {app: wp-setup}}
     spec:
       restartPolicy: OnFailure
       securityContext: {runAsUser: 33, runAsGroup: 33}

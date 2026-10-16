@@ -1,4 +1,10 @@
 # System design notes
-Tables: users, api_keys, mcp_servers, tool_permissions, audit_logs (see services/gateway/app/models/tables.py).
-Trade-offs: sync SQLAlchemy in async handlers (simple, adequate for demo); stateless MCP responses (no SSE); tool cache in memory per replica
-(each replica refreshes independently — fine for 2 replicas, revisit with Redis/pubsub at scale).
+Tables: users, api_keys, mcp_servers, mcp_tool_cache, tool_permissions,
+invitations, and audit_logs (see `services/gateway/app/models/tables.py`).
+
+Trade-offs: synchronous SQLAlchemy is used in async handlers; the MCP endpoint
+returns stateless JSON responses and does not implement an SSE session; the
+tool catalog cache is stored in the configured database so gateway replicas
+share the last successful catalog. The project has no Alembic migration
+workflow, so schema evolution beyond additive table creation needs a planned
+migration process.

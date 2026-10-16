@@ -28,4 +28,4 @@ def tool_allowed(db: Session, role: str, tool: str) -> bool:
     if role == "ADMIN":
         return True
     p = db.query(ToolPermission).filter_by(role=role, tool=tool).first()
-    return True if p is None else p.allowed
+    return bool(p and p.allowed)

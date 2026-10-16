@@ -6,8 +6,14 @@ images:
   currencyMcp: urumi/currency-mcp:latest
   pullPolicy: IfNotPresent
 appEnv: development
+llm:
+  baseUrl: ""
+  model: ""
 ingress:
   className: traefik
+  controllerNamespace: kube-system
+  controllerPodSelector:
+    app.kubernetes.io/name: traefik
   storeHost: store.urumi.local
   dashboardHost: dashboard.urumi.local
   tlsSecret: ""
@@ -34,5 +40,5 @@ secrets:
   wooConsumerKey: ""
   wooConsumerSecret: ""
   wooMcpToken: ""
-  anthropicApiKey: ""
+  llmApiKey: ""
 networkPolicies: true

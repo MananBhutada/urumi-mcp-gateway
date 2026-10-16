@@ -45,4 +45,12 @@ Connect MCP Inspector or Cursor to the single gateway MCP endpoint using a membe
 
 ## 4. Dashboard chat acceptance
 
-The chat API only accepts user/assistant conversation turns, limits the request size, uses server-owned tool schemas, and routes tool calls through the gateway router. Verify a prompt that requires two upstream tools, inspect the tool trace, and confirm the audit records attribute the calls to the logged-in user. If the configured Anthropic key is absent, the chat endpoint should return a safe configuration error rather than pretend the model is running.
+The chat API only accepts user/assistant conversation turns, limits the request size, uses server-owned tool schemas, and routes tool calls through the gateway router. Verify a prompt that requires two upstream tools, inspect the tool trace, and confirm the audit records attribute the calls to the logged-in user. If LLM configuration is missing or a provider request fails, the chat endpoint should return a safe error rather than pretend the model is running.
+
+The provider is configured through `LLM_BASE_URL`, `LLM_MODEL`, and
+`LLM_API_KEY` using an OpenAI-compatible chat-completions API. The selected
+provider/model must support tool calling. Provider credentials are not
+dashboard login credentials: dashboard sign-in and `/api/me` require a
+Urumi Gateway API key. A `/api/me` 401 does not indicate an LLM provider error.
+For the latest verified source/live distinction and outstanding deployment
+blocker, see [STATUS.md](STATUS.md).

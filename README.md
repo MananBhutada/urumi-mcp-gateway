@@ -16,17 +16,54 @@ Dashboard / Chat / Cursor / MCP Inspector → ONE GATEWAY URL (/mcp) → woocomm
 - infrastructure/helm/urumi: one chart with local and production values
 - docs: architecture, threat model, MCP flow, demo script, status and assessment gap matrix
 
-## Quick start (local)
+## Windows clone and local setup
+
+On another Windows computer, clone the repository and inspect its state before
+making changes:
+
+```powershell
+git clone https://github.com/MananBhutada/urumi-mcp-gateway.git
+Set-Location .\urumi-mcp-gateway
+git status --short
+```
+
+Install Python 3.12, Node.js 22, Docker Desktop, kubectl, Helm, and k3d for the
+full local-cluster workflow. Create a Python environment and install test
+dependencies:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r services\gateway\requirements.txt
+python -m pip install -r services\woo-mcp\requirements.txt
+python -m pip install pytest
+Set-Location .\dashboard
+npm ci
+Set-Location ..
+```
+
+These are setup instructions, not a claim that a fresh clone or clean cluster
+was tested in the latest verification. The exact tests observed for the current
+working tree are recorded in [docs/STATUS.md](docs/STATUS.md).
+
+## Quick start (disposable local cluster)
 ```bash
 ./scripts/dev.sh
-echo "127.0.0.1 store.urumi.local dashboard.urumi.local" | sudo tee -a /etc/hosts
 ```
+
+On Windows, add `127.0.0.1 store.urumi.local dashboard.urumi.local` to
+`C:\Windows\System32\drivers\etc\hosts` using an elevated editor.
 The local-only bootstrap admin key is set in infrastructure/helm/urumi/values-local.yaml under secrets.bootstrapAdminKey. It is a disposable demo credential and must never be reused in production.
 
-MCP client config (Cursor / Inspector): URL http://dashboard.urumi.local/mcp, header Authorization: Bearer <member key>.
+MCP client config (Cursor / Inspector): URL `http://dashboard.urumi.local/mcp`, header `Authorization: Bearer <Urumi Gateway API key>`. Do not use an LLM-provider key for Gateway sign-in or MCP authentication.
 
 ## Production values
 Use values-prod.yaml and provide unique secrets through a secret manager or deployment-time secret injection. The production gateway refuses to start with a weak gateway secret, a weak bootstrap admin key, or SQLite. Do not commit real credentials or a populated production values file.
+
+## Chat model provider
+The chat layer uses an OpenAI-compatible chat-completions API. Configure `LLM_BASE_URL` (provider base URL, such as `https://openrouter.ai/api/v1`), `LLM_MODEL` (the provider's exact model identifier), and `LLM_API_KEY`. The selected provider and model must support function/tool calling. These settings have empty defaults, so chat stays unavailable until all three are configured.
+
+In Kubernetes, set `llm.baseUrl` and `llm.model` in Helm values and supply the key as `secrets.llmApiKey`; the chart puts it in the `urumi-secrets` Secret and injects it into the gateway from that Secret. Use a protected file with Helm `--set-file secrets.llmApiKey=...`; do not put the key in committed values, command-line `--set` arguments, logs, or pod arguments. Helm release data retains values. This chart currently creates its Secret from Helm values rather than referencing an externally managed Secret, so production deployments that require external secret management need that integration configured before use.
 
 ## Team invitations
 An admin can create a seven-day, one-time invitation with POST /api/invitations using the admin bearer key and JSON body such as {"email":"member@example.com","role":"MEMBER"}. The response contains a one-time invite_token to place in your invitation link or share securely. The invitee accepts with POST /api/invitations/accept and {"token":"...","name":"..."}. Acceptance creates a user and returns a new API key once. Email delivery is not implemented; the invitee completes acceptance in the dashboard using the link fragment.
@@ -34,8 +71,12 @@ An admin can create a seven-day, one-time invitation with POST /api/invitations 
 ## Run gateway without Kubernetes (fast loop)
 ```bash
 cd services/gateway && pip install -r requirements.txt
-BOOTSTRAP_ADMIN_KEY=urumi_live_dev SEED_SERVERS='[{"name":"weather","url":"http://localhost:8001/mcp"}]' uvicorn app.main:app --port 8000
+BOOTSTRAP_ADMIN_KEY="$URUMI_LOCAL_ADMIN_KEY" SEED_SERVERS='[{"name":"weather","url":"http://localhost:8001/mcp"}]' uvicorn app.main:app --port 8000
 ```
+
+Set `URUMI_LOCAL_ADMIN_KEY` in the local shell to a disposable Gateway key
+before running this example; do not place it in source control or use it in
+production.
 
 ## Key design decisions
 - Namespaced server__tool names prevent collisions.
@@ -44,4 +85,11 @@ BOOTSTRAP_ADMIN_KEY=urumi_live_dev SEED_SERVERS='[{"name":"weather","url":"http:
 - Tool permissions are checked during listing and execution.
 - MCP and chat tool calls are routed and audited by the gateway rather than calling upstreams directly.
 
-See docs/STATUS.md and docs/assessment-gap-matrix.md for the distinction between implemented code and requirements still awaiting live proof.
+See [docs/STATUS.md](docs/STATUS.md) for the current verified state, exact
+validation results, and deployment blockers. Dashboard sign-in uses a Urumi
+Gateway API key, separate from `LLM_API_KEY`. The source-level “Invalid key”
+fix is not deployed. Do not run `helm upgrade` from this dirty worktree: the
+last redacted plan proposed 23 resource changes, including `urumi-secrets` and
+NetworkPolicies. See [docs/assessment-gap-matrix.md](docs/assessment-gap-matrix.md)
+for remaining assignment acceptance evidence. Local chart validation does not
+establish live-store, MCP-client, or production readiness.

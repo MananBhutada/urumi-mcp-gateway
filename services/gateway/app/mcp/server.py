@@ -69,7 +69,7 @@ async def mcp_endpoint(request: Request, db: Session = Depends(get_db)):
     if method == "ping":
         return JSONResponse({"jsonrpc": "2.0", "id": id_, "result": {}})
     if method == "tools/list":
-        return JSONResponse({"jsonrpc": "2.0", "id": id_, "result": {"tools": R.tools_for(user)}})
+        return JSONResponse({"jsonrpc": "2.0", "id": id_, "result": {"tools": R.tools_for(user, db)}})
     if method == "tools/call":
         name = params.get("name")
         arguments = params.get("arguments") or {}

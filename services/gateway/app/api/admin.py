@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from ..db.session import get_db
-from ..models.tables import User, ApiKey, Invitation, McpServer, AuditLog, ToolPermission
+from ..models.tables import User, ApiKey, Invitation, McpServer, McpToolCache, AuditLog, ToolPermission
 from ..auth.rbac import current_user, require_admin
 from ..auth.api_keys import generate_key, hash_key, encrypt
 from ..routing import router as R
@@ -27,14 +27,15 @@ class ServerIn(BaseModel):
     enabled: bool = True
 
 
-def _srv(s: McpServer):
+def _srv(s: McpServer, db: Session):
+    cache = db.get(McpToolCache, s.name)
     return {"id": s.id, "name": s.name, "url": s.url, "enabled": s.enabled, "status": s.status,
-            "last_error": s.last_error, "tool_count": len(R.TOOL_CACHE.get(s.name, [])), "has_credential": bool(s.credential_encrypted)}
+            "last_error": s.last_error, "tool_count": len(cache.tools_json) if cache else 0, "has_credential": bool(s.credential_encrypted)}
 
 
 @api.get("/servers")
 def servers(db: Session = Depends(get_db), u: User = Depends(current_user)):
-    return [_srv(s) for s in db.query(McpServer).order_by(McpServer.id)]
+    return [_srv(s, db) for s in db.query(McpServer).order_by(McpServer.id)]
 
 
 @api.post("/servers")
@@ -44,7 +45,7 @@ async def add_server(b: ServerIn, db: Session = Depends(get_db), _: User = Depen
     if not b.name.replace("-", "").replace("_", "").isalnum() or "__" in b.name:
         raise HTTPException(400, "name must be alphanumeric/-/_ and not contain '__'")
     s = McpServer(name=b.name.lower(), url=b.url, credential_encrypted=encrypt(b.credential), enabled=b.enabled)
-    db.add(s); db.commit(); await R.refresh_server(s.id); db.refresh(s); return _srv(s)
+    db.add(s); db.commit(); await R.refresh_server(s.id); db.refresh(s); return _srv(s, db)
 
 
 @api.patch("/servers/{sid}")
@@ -57,19 +58,24 @@ async def patch_server(sid: int, b: dict, db: Session = Depends(get_db), _: User
         s.url = b["url"]
     if "enabled" in b: s.enabled = bool(b["enabled"])
     if b.get("credential"): s.credential_encrypted = encrypt(b["credential"])
-    db.commit(); await R.refresh_server(s.id); db.refresh(s); return _srv(s)
+    cache = db.get(McpToolCache, s.name)
+    if cache: db.delete(cache)
+    db.commit(); await R.refresh_server(s.id); db.refresh(s); return _srv(s, db)
 
 
 @api.delete("/servers/{sid}")
 def del_server(sid: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     s = db.get(McpServer, sid)
-    if s: R.TOOL_CACHE.pop(s.name, None); db.delete(s); db.commit()
+    if s:
+        cache = db.get(McpToolCache, s.name)
+        if cache: db.delete(cache)
+        db.delete(s); db.commit()
     return {"ok": True}
 
 
 @api.get("/tools")
-def tools(u: User = Depends(current_user)):
-    return R.tools_for(u)
+def tools(db: Session = Depends(get_db), u: User = Depends(current_user)):
+    return R.tools_for(u, db)
 
 
 # ---- users, keys, and one-time invitations
