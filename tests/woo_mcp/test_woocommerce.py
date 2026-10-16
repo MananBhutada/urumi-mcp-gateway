@@ -74,6 +74,54 @@ def test_woo_configuration_rejects_missing_credentials(monkeypatch):
         woocommerce._validate_configuration()
 
 
+def test_oauth_base_url_uses_host_header_for_signature(monkeypatch):
+    monkeypatch.setattr(woocommerce, "BASE", "http://wordpress")
+    monkeypatch.setattr(woocommerce, "HOST", "store.urumi.local")
+
+    assert woocommerce._oauth_base_url("/products") == "http://store.urumi.local/wp-json/wc/v3/products"
+
+
+def test_woo_request_uses_oauth_without_exposing_consumer_secret(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return []
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            captured.update({"method": method, "url": url, **kwargs})
+            return FakeResponse()
+
+    monkeypatch.setattr(woocommerce, "BASE", "http://wordpress")
+    monkeypatch.setattr(woocommerce, "HOST", "store.urumi.local")
+    monkeypatch.setattr(woocommerce, "CK", "ck_test")
+    monkeypatch.setattr(woocommerce, "CS", "cs_test")
+    monkeypatch.setattr(woocommerce, "TIMEOUT", 15)
+    monkeypatch.setattr(woocommerce.secrets, "token_hex", lambda _: "nonce")
+    monkeypatch.setattr(woocommerce.time, "time", lambda: 1234567890)
+    monkeypatch.setattr(woocommerce.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+
+    assert asyncio.run(woocommerce.request("GET", "/products", {"per_page": 1})) == []
+    assert captured["url"] == "http://wordpress/wp-json/wc/v3/products"
+    assert captured["headers"] == {"Host": "store.urumi.local"}
+    assert captured["params"]["oauth_consumer_key"] == "ck_test"
+    assert captured["params"]["oauth_nonce"] == "nonce"
+    assert captured["params"]["oauth_signature_method"] == "HMAC-SHA256"
+    assert captured["params"]["oauth_timestamp"] == "1234567890"
+    assert "oauth_signature" in captured["params"]
+    assert "consumer_secret" not in captured["params"]
+    assert "cs_test" not in str(captured)
+
+
 def test_woo_errors_do_not_echo_upstream_response_body(monkeypatch):
     class FakeResponse:
         status_code = 500

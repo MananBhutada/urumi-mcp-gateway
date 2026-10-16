@@ -1,11 +1,11 @@
-"""Small async WooCommerce REST client. Credentials stay inside this service.
-
-WooCommerce query-parameter authentication is retained for the in-cluster HTTP
-service because the local Kubernetes store does not terminate TLS. Do not expose
-this service publicly; use the gateway + NetworkPolicy + MCP bearer token.
-"""
+"""Small async WooCommerce REST client. Credentials stay inside this service."""
+import base64
+import hashlib
+import hmac
 import os
-from urllib.parse import urlsplit
+import secrets
+import time
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
 
@@ -18,6 +18,43 @@ TIMEOUT = float(os.getenv("WOO_TIMEOUT_SECONDS", "15"))
 
 class WooError(Exception):
     """Safe, user-facing WooCommerce integration error."""
+
+
+def _rfc3986(value: object) -> str:
+    return quote(str(value), safe="-._~")
+
+
+def _oauth_base_url(path: str) -> str:
+    parsed = urlsplit(BASE)
+    host = HOST or parsed.netloc
+    return urlunsplit((parsed.scheme, host, f"/wp-json/wc/v3{path}", "", ""))
+
+
+def _oauth_params(method: str, path: str, params: dict) -> dict:
+    oauth = {
+        "oauth_consumer_key": CK,
+        "oauth_nonce": secrets.token_hex(16),
+        "oauth_signature_method": "HMAC-SHA256",
+        "oauth_timestamp": str(int(time.time())),
+    }
+    signing_params = {**params, **oauth}
+    normalized_pairs = sorted(
+        (_rfc3986(key), _rfc3986(value))
+        for key, value in signing_params.items()
+    )
+    normalized_query = "&".join(
+        f"{key}={value}" for key, value in normalized_pairs
+    )
+    string_to_sign = "&".join(
+        [
+            method.upper(),
+            _rfc3986(_oauth_base_url(path)),
+            _rfc3986(normalized_query),
+        ]
+    )
+    digest = hmac.new(f"{CS}&".encode(), string_to_sign.encode(), hashlib.sha256).digest()
+    oauth["oauth_signature"] = base64.b64encode(digest).decode()
+    return oauth
 
 
 def _validate_configuration() -> None:
@@ -43,13 +80,14 @@ def _validate_path(path: str) -> str:
 async def request(method: str, path: str, params=None, json=None):
     _validate_configuration()
     path = _validate_path(path)
+    method = method.upper()
     query = dict(params or {})
-    query.update({"consumer_key": CK, "consumer_secret": CS})
+    query.update(_oauth_params(method, path, query))
     headers = {"Host": HOST} if HOST else {}
     url = f"{BASE}/wp-json/wc/v3{path}"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=False) as client:
-            response = await client.request(method.upper(), url, params=query, json=json, headers=headers)
+            response = await client.request(method, url, params=query, json=json, headers=headers)
     except httpx.TimeoutException as exc:
         raise WooError("WooCommerce request timed out") from exc
     except httpx.HTTPError as exc:

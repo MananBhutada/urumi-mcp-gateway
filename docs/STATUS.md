@@ -76,3 +76,14 @@ Note: the uploaded zip contained **no `.git` directory**, so no commits were mad
 - Woo REST client now validates its configured base URL/path and credentials, applies a configurable bounded timeout, handles connection/timeout/invalid-JSON failures, and does not echo upstream response bodies into tool errors.
 - Added isolated regression tests under `tests/woo_mcp` and a separate CI job for them.
 - **Not yet verified:** no CI run has been observed for this branch, and this is not proof of a real WooCommerce store or Kubernetes checkout flow. The next acceptance gate remains running CI, then deploying the WordPress/WooCommerce chart and testing REST tools plus a real COD checkout/order in wp-admin.
+
+## Live k3d recovery verification (2026-10-13)
+
+- Fixed WooCommerce REST 401 for the in-cluster HTTP path by replacing query-parameter `consumer_key`/`consumer_secret` auth with WooCommerce-compatible OAuth 1.0a signing. The request still goes to `http://wordpress`; the signature uses the canonical `store.urumi.local` host when `WOO_HOST_HEADER` is set.
+- Built and imported `urumi/woo-mcp:latest`, restarted `deployment/woo-mcp`, and verified the running container has the OAuth signer.
+- Live read-only product listing from inside `woo-mcp` returned `OK list 1`.
+- Gateway MCP `tools/list` returned 9 tools including `woocommerce__list_products`; gateway-routed `woocommerce__list_products`, `weather__get_weather`, and `currency__convert_currency` all returned `isError False`.
+- Fixed currency acceptance by allowing redirects from Frankfurter's old `.app/latest` endpoint to its current `.dev/v1/latest` endpoint; built/imported/restarted `currency-mcp`.
+- Auth/audit sanity check: admin `tools/list` returned HTTP 200, a bad bearer key returned HTTP 401, and `/api/audit?limit=5` returned rows with `user`, `server`, `tool`, `duration_ms`, and `success`.
+- Unit checks run locally: `python -m pytest tests\woo_mcp` -> 21 passed; `python -m py_compile services\woo-mcp\app\woocommerce.py`; `python -m py_compile services\currency-mcp\app\main.py`.
+- Still not run in this session: Helm lint/template, dashboard build, real browser checkout, order mutation, external MCP Inspector/Cursor, and chat/model flow.

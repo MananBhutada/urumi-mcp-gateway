@@ -1,3 +1,4 @@
+
 apiVersion: apps/v1
 kind: Deployment
 metadata: {name: gateway, labels: {app: gateway}}
@@ -14,9 +15,9 @@ spec:
           imagePullPolicy: {{ .Values.images.pullPolicy }}
           env:
             - {name: APP_ENV, value: {{ .Values.appEnv | default "development" | quote }}}
+            - {name: PG_PW, valueFrom: {secretKeyRef: {name: urumi-secrets, key: postgres-password}}}
             - name: DATABASE_URL
               value: "postgresql+psycopg2://urumi:$(PG_PW)@postgres:5432/urumi"
-            - {name: PG_PW, valueFrom: {secretKeyRef: {name: urumi-secrets, key: postgres-password}}}
             - {name: SECRET_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: gateway-secret-key}}}
             - {name: BOOTSTRAP_ADMIN_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: bootstrap-admin-key}}}
             - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: anthropic-api-key}}}

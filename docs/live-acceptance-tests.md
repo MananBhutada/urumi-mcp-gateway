@@ -25,7 +25,7 @@ python scripts/smoke_test_woocommerce.py
 
 The script reads products, creates a disposable **draft** product, reads it back, and lists orders. Set \`WOO_TEST_ORDER_ID\` to an existing test order to verify order lookup and a same-status update. It never prints credentials or raw upstream bodies. Delete the disposable draft product manually when finished.
 
-Important: WooCommerce REST credentials are supplied as query parameters by the current client for compatibility with the in-cluster WordPress service. Query parameters can be logged by proxies. Use HTTPS for any non-local environment, keep the service private, redact query strings in logs, and use a least-privilege key.
+Important: the Woo MCP client signs WooCommerce REST requests with OAuth 1.0a. For local HTTP clusters, it sends the request to the in-cluster WordPress service while signing the canonical store host URL. Keep the service private, redact query strings in logs, and use a least-privilege key.
 
 ## 2. Browser checkout acceptance
 

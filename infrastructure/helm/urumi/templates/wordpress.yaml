@@ -1,3 +1,4 @@
+
 apiVersion: apps/v1
 kind: Deployment
 metadata: {name: wordpress, labels: {app: wordpress}}
@@ -33,12 +34,14 @@ kind: Service
 metadata: {name: wordpress}
 spec: {selector: {app: wordpress}, ports: [{port: 80}]}
 ---
-# Installs WP + WooCommerce, enables COD, seeds a product, provisions the REST key used by woo-mcp.
+# Installs WordPress and WooCommerce, enables COD, seeds a product, and provisions the REST key.
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: wp-setup
-  annotations: {"helm.sh/hook": "post-install,post-upgrade", "helm.sh/hook-delete-policy": "before-hook-creation"}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
 spec:
   backoffLimit: 6
   template:
@@ -49,15 +52,19 @@ spec:
         - name: wpcli
           image: wordpress:cli
           env:
+            - {name: WORDPRESS_DB_HOST, value: mysql}
+            - {name: WORDPRESS_DB_NAME, value: wordpress}
+            - {name: WORDPRESS_DB_USER, value: wordpress}
+            - {name: WORDPRESS_DB_PASSWORD, valueFrom: {secretKeyRef: {name: urumi-secrets, key: mysql-password}}}
             - {name: WOO_CK, valueFrom: {secretKeyRef: {name: urumi-secrets, key: woo-ck}}}
             - {name: WOO_CS, valueFrom: {secretKeyRef: {name: urumi-secrets, key: woo-cs}}}
             - {name: WP_ADMIN_PW, valueFrom: {secretKeyRef: {name: urumi-secrets, key: wp-admin-password}}}
-          command: ["sh","-c"]
+          command: ["sh", "-c"]
           args:
             - |
               cd /var/www/html
-              until [ -f wp-config.php ]; do echo waiting for wp-config; sleep 3; done
-              until wp db check >/dev/null 2>&1; do echo waiting for db; sleep 3; done
+              until [ -f wp-config.php ]; do echo "waiting for wp-config"; sleep 3; done
+              until wp db check >/dev/null 2>&1; do echo "waiting for db"; sleep 3; done
               if ! wp core is-installed; then
                 wp core install --url="{{ .Values.wordpress.scheme }}://{{ .Values.ingress.storeHost }}" --title="Urumi Store" \
                   --admin_user=admin --admin_password="$WP_ADMIN_PW" --admin_email=admin@urumi.local --skip-email
@@ -76,7 +83,7 @@ spec:
                 $wpdb->delete($t, ["description"=>"urumi-mcp"]);
                 $wpdb->insert($t, ["user_id"=>1,"description"=>"urumi-mcp","permissions"=>"read_write",
                   "consumer_key"=>wc_api_hash($ck),"consumer_secret"=>$cs,"truncated_key"=>substr($ck,-7)]);'
-              echo setup complete
+              echo "setup complete"
           resources: {{ toYaml .Values.resources.small | nindent 12 }}
           volumeMounts: [{name: data, mountPath: /var/www/html}]
       volumes: [{name: data, persistentVolumeClaim: {claimName: wordpress-data}}]
