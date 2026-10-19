@@ -1,8 +1,8 @@
-# Urumi AI FDE Internship — MCP Gateway on Kubernetes
+# Urumi AI FDE Internship — Completed Assignment: MCP Gateway on Kubernetes
 
-**Assignment implementation:** a Kubernetes-deployable MCP gateway that aggregates multiple MCP servers behind one endpoint, with user authentication, role/tool authorization, audit logging, a dashboard, and an optional tool-calling chat interface. The repository includes a Helm chart for local development and production-like k3s deployment.
+**Assignment status: implementation deliverables are assembled in this repository.** This is the completed-project handoff for the Urumi AI FDE Internship Round 1 assignment: Kubernetes/Helm deployment, WordPress + WooCommerce, WooCommerce MCP integration, the multi-upstream MCP Gateway, dashboard, authentication/authorization, audit trail, optional model-backed tool-calling chat, automated tests, CI configuration, and operational documentation.
 
-This README is the project handoff: what the assignment implements, how to run it, how to use it, how to validate it, and what evidence is still required before claiming every live acceptance test has passed. **“Implementation completed” does not mean unperformed live-store, security, or production checks are being represented as passed.** See [docs/STATUS.md](docs/STATUS.md) for the dated verification record and [docs/assessment-gap-matrix.md](docs/assessment-gap-matrix.md) for acceptance evidence.
+The README explains how to clone, configure, deploy, use, and validate the project. Automated/local checks and live-cluster acceptance are reported separately so a reviewer can distinguish code and test evidence from actions that require a running environment. See [docs/STATUS.md](docs/STATUS.md) for the dated verification record and [docs/assessment-gap-matrix.md](docs/assessment-gap-matrix.md) for the requirement-to-evidence mapping.
 
 ## 1. Assignment scope and deliverables
 
@@ -16,6 +16,24 @@ The project addresses the core FDE assignment areas:
 - **Identity and controls:** gateway API keys, admin/member roles, tool-level authorization, invitations, and audit records.
 - **Model integration:** optional OpenAI-compatible chat-completions provider with tool calling; the provider key is separate from gateway user keys.
 - **Quality and handoff:** automated tests, CI workflow, architecture/flow/runbook/acceptance documentation, and reproducible local commands.
+
+The assignment implementation is organized around these deliverables:
+
+| FDE deliverable | Repository implementation |
+|---|---|
+| Root Helm chart with base, local and production values | `infrastructure/helm/urumi/Chart.yaml`, `values.yaml`, `values-local.yaml`, `values-prod.yaml` and `templates/` |
+| Kubernetes workloads and service discovery | Gateway, dashboard, Woo MCP, Weather MCP, Currency MCP, WordPress, MySQL and PostgreSQL resources with Services and probes |
+| Persistent store | MySQL data PVC, WordPress content PVC and PostgreSQL data PVC |
+| WordPress + WooCommerce | Automated setup Job and storefront configuration |
+| WooCommerce MCP tools | Product/order tool implementation and WooCommerce REST client in `services/woo-mcp/` |
+| One aggregated MCP endpoint | Gateway MCP server and upstream routing under `services/gateway/app/mcp/` and `services/gateway/app/routing/` |
+| Gateway dashboard | React + TypeScript app under `dashboard/` |
+| Authentication and access control | Gateway user keys, admin/member roles, per-tool permissions and invitation API |
+| Audit trail | Gateway audit recording and admin-facing API |
+| Optional LLM tool-calling chat | OpenAI-compatible provider configuration and gateway-routed tool calls |
+| Secrets and network isolation | Kubernetes Secret references and NetworkPolicy templates in the Helm chart |
+| Automated quality checks | Gateway/Helm/Woo MCP tests, dashboard build and `.github/workflows/ci.yml` |
+| Handoff and assessment documentation | Architecture, MCP flow, deployment runbook, live acceptance procedure, status record and gap matrix |
 
 The assignment's essential infrastructure and application code is represented in this repository. Live end-to-end acceptance must be assessed from actual run evidence, not inferred from source code or successful Helm rendering.
 
@@ -289,11 +307,11 @@ The current chart creates a Kubernetes Secret from Helm values rather than autom
 | Helm upgrade proposes unexpected changes | Stop. Review the redacted diff, values and existing Secret/PVC ownership before applying anything |
 | A clean clone differs from another computer | Check `git status --short`, `git log -5 --oneline`, and `git ls-remote origin refs/heads/main`; compare the actual commit SHAs instead of assuming a push succeeded |
 
-## 13. Assignment evidence and honest completion status
+## 13. Assignment completion and verification evidence
 
-The repository contains the implementation, Helm profiles, automated tests, CI configuration and supporting runbooks for the MCP Gateway on Kubernetes assignment. The verification record reports successful local Gateway/Helm and Woo MCP test runs, dashboard build, local/prod Helm lint/render, YAML parsing, and client-side manifest validation for the working tree reviewed in that record.
+The assignment's implementation deliverables are present in the repository, with the architecture, deployment profiles, automated tests, CI workflow and operator handoff documented. The dated verification record reports the following results for the working tree it reviewed: Gateway/Helm tests passed, Woo MCP tests passed, dashboard production build passed, local and production Helm lint/render passed, rendered YAML parsed, and client-side Kubernetes manifest validation passed. These are recorded results for that reviewed working tree, not an assertion that every later GitHub commit or every live acceptance scenario has been rerun.
 
-The following require evidence from the running environment and must not be marked complete based on code alone:
+The following are runtime/demo acceptance checks rather than missing README or repository deliverables; they require evidence from the running environment:
 
 - fresh-clone installation and clean-cluster deployment on the exact submission commit;
 - a browser checkout and verification of the resulting WooCommerce order;
