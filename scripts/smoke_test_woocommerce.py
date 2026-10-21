@@ -10,9 +10,14 @@ Optional:
   WOO_TEST_ORDER_ID=123  # test get_order endpoint against a known order
 This script never prints credentials or response bodies. It creates a DRAFT product.
 """
+import base64
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,6 +28,37 @@ BASE = os.environ.get("WOO_BASE_URL", "").rstrip("/")
 CK = os.environ.get("WOO_CONSUMER_KEY", "")
 CS = os.environ.get("WOO_CONSUMER_SECRET", "")
 TIMEOUT = 15
+
+
+def rfc3986(value):
+    return urllib.parse.quote(str(value), safe="-._~")
+
+
+def oauth_params(method, path, query):
+    oauth = {
+        "oauth_consumer_key": CK,
+        "oauth_nonce": secrets.token_hex(16),
+        "oauth_signature_method": "HMAC-SHA256",
+        "oauth_timestamp": str(int(time.time())),
+    }
+    parsed = urllib.parse.urlsplit(BASE)
+    host = os.environ.get("WOO_HOST_HEADER") or parsed.netloc
+    canonical_url = urllib.parse.urlunsplit(
+        (parsed.scheme, host, f"/wp-json/wc/v3{path}", "", "")
+    )
+    pairs = sorted(
+        (rfc3986(key), rfc3986(value))
+        for key, value in {**query, **oauth}.items()
+    )
+    normalized_query = "&".join(f"{key}={value}" for key, value in pairs)
+    signature_base = "&".join(
+        (method.upper(), rfc3986(canonical_url), rfc3986(normalized_query))
+    )
+    digest = hmac.new(
+        f"{CS}&".encode(), signature_base.encode(), hashlib.sha256
+    ).digest()
+    oauth["oauth_signature"] = base64.b64encode(digest).decode()
+    return oauth
 
 
 def fail(message, code=1):
@@ -36,11 +72,14 @@ def call(method, path, payload=None, query=None):
     if BASE.startswith("http://") and os.environ.get("WOO_ALLOW_INSECURE_HTTP") != "1":
         fail("Refusing to send REST credentials over HTTP; use HTTPS or explicitly set WOO_ALLOW_INSECURE_HTTP=1 for a disposable local cluster")
     params = dict(query or {})
-    params.update({"consumer_key": CK, "consumer_secret": CS})
+    params.update(oauth_params(method, path, params))
     url = f"{BASE}/wp-json/wc/v3{path}?{urllib.parse.urlencode(params)}"
     body = None if payload is None else json.dumps(payload).encode()
     req = urllib.request.Request(url, data=body, method=method,
                                  headers={"Content-Type": "application/json", "Accept": "application/json"})
+    host = os.environ.get("WOO_HOST_HEADER")
+    if host:
+        req.add_header("Host", host)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as response:
             raw = response.read()

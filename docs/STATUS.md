@@ -1,6 +1,6 @@
 # Urumi Gateway — current state and handoff
 
-Updated: 2026-10-16. This section is the current record; dated entries below it
+Updated: 2026-10-19. This section is the current record; dated entries below it
 are historical and may describe an earlier state. A passing local build or
 render is not evidence of live-store acceptance.
 
@@ -8,14 +8,17 @@ render is not evidence of live-store acceptance.
 
 | Area | State | Evidence / boundary |
 |---|---|---|
-| Working tree review snapshot | Reviewed for this handoff | At review start, branch `main` matched `origin/main` (0 commits ahead/behind), with 81 status entries and no staged changes. Twenty-seven paths had content diffs; the remaining modified statuses appeared line-ending/metadata-only. The reviewed source, tests, Helm, and documentation changes are intended for synchronization; malformed scratch/output files and an uncertain auth snapshot are excluded. |
-| Live local cluster | Running, read-only inspected | Context `k3d-urumi`, namespace `default`; Helm release `urumi` revision 7, `deployed`; gateway and dashboard each showed 1/1 Ready. |
+| Source worktree | Local changes only; not committed or pushed | `main` remains at `bb514d2` and matches the local `origin/main` tracking ref. This task adds WooCommerce tools, test-order response verification, discovered-tool enforcement, safe errors, an existing-release deployment confirmation gate, tests, and acceptance docs. Pre-existing modified paths and untracked artifacts were preserved; nothing was staged or discarded. |
+| Live local cluster | Not checked in this task | Last recorded read-only observation (2026-10-16): context `k3d-urumi`, namespace `default`; Helm release `urumi` revision 7, `deployed`; gateway and dashboard each showed 1/1 Ready. No cluster resources were changed here. |
 | Dashboard “Invalid key” | Source fix exists; NOT deployed | The browser's sign-in field contained a value that was not a `urumi_live_` Gateway key. The dashboard sent it to `/api/me`; the provider credential is not a Gateway login key. The shared browser's saved `urumi_key` was cleared. The cluster still serves the old dashboard image/UI. |
 | Gateway authentication | Live admin auth verified | Gateway container code is under `/srv/app` (image entrypoint `app.main:app`). Without displaying either credential or stored hashes, the configured bootstrap key was compared to the admin's active hashed key; it matched. Authenticated `/api/me` returned HTTP 200 and role `ADMIN`. |
-| Bootstrap behavior | Deliberately create-only | `bootstrap()` creates the admin and its key only when the configured email has no user. Changing `BOOTSTRAP_ADMIN_KEY` later does not reconcile or replace an existing key. No reconciliation or database mutation was performed. |
-| Python tests | PASS | Gateway and Helm: 53 passed. WooCommerce MCP: 21 passed when run from `services\woo-mcp`. Combined total: 74 passed. |
+| Bootstrap-key recovery | Explicit opt-in; not deployed | API-key records do not identify the bootstrap-issued key, so automatic replacement/revocation would be unsafe. `bootstrapAdminKeyRecovery: true` adds the configured key only to an existing ADMIN when its hash is not already assigned; all existing keys/data are preserved. PostgreSQL transaction advisory locking serializes replicas. Disable the flag after verifying sign-in. |
+| Python tests | PASS locally | Gateway and Helm: 57 passed. WooCommerce MCP: 42 passed when run from `services\woo-mcp`, including required tool schemas, mocked reads, test-order response validation, and OAuth smoke signing. |
 | Dashboard | PASS locally | From `dashboard`: `npm run build` completed TypeScript checking and Vite production build. Mocked API/key-format assertions passed; no actual dashboard credential was used in these tests. |
+| Container builds | PASS locally | Gateway and WooCommerce MCP Docker images built with local-validation tags; nothing was pushed or deployed. |
 | Helm | PASS locally | Local and production lint/render passed with the exact commands below. Both rendered outputs parsed as YAML and contained 18 NetworkPolicies. |
+| Current live acceptance | NOT RUN | No live provider request, product/customer/order operation, dashboard sign-in, cluster network probe, or persistence restart was performed in this task. |
+| Local deployment guard | PASS by source review and shell syntax | `scripts/dev.sh` targets `k3d-urumi`, checks the existing cluster/release, warns about resource changes, and requires an interactive exact confirmation before an existing-release upgrade. Script was syntax-checked, not executed. |
 | Kubernetes manifest validation | PASS client-side | `kubectl apply --dry-run=client --validate=true` accepted both rendered profiles. This did not apply resources. |
 | Live Helm plan | BLOCKED; no upgrade | A redacted server dry-run against revision 7 proposed changes to 23 resources, including `urumi-secrets`, Gateway Deployment, and NetworkPolicies. The plan was rejected; no upgrade ran. |
 | Store / WooCommerce acceptance | PARTIALLY verified | A prior read-only live check listed a WooCommerce product and routed Weather/Currency calls. Fresh checkout, order mutation, and persistence across pod restart remain unverified. |
@@ -48,9 +51,9 @@ separately approved change plan. No credential rotation has occurred.
 | Requirement | Implementation / evidence | Remaining acceptance |
 |---|---|---|
 | One gateway aggregates WooCommerce, Weather, Currency MCPs | `services/gateway/app/mcp`, `services/gateway/app/routing`; local tests and a prior live tool listing | Verify initialize/list/call with MCP Inspector or another external client against the deployed current image. |
-| WooCommerce MCP with product/order tools | `services/woo-mcp/app/tools/products.py` and `orders.py`; `list_products`, `create_product`, `list_orders`, `get_order`, `update_order_status`; mock tests previously passed | Fresh live create/list/get/update against disposable data and verify a real checkout order in WooCommerce. |
+| WooCommerce MCP with product/order/customer tools | `services/woo-mcp/app/tools/products.py` and `orders.py`; required `get_products`, `get_orders`, `get_customer`, `create_order` are registered alongside the existing five tools. `create_order` requires `test_order=true`, accepts no customer details, and only reports success after WooCommerce confirms pending/unpaid state and `_urumi_test_order`. Mocked tests passed. | Run [live-acceptance-tests.md](live-acceptance-tests.md) only against a disposable store; live tools and order persistence remain unverified. |
 | WordPress/WooCommerce and MySQL persistence | Helm WordPress, setup Job, MySQL, and separate PVC templates | Complete checkout and prove product/order/uploads persist after pod restart; document backup/restore separately. |
-| Gateway users, keys, roles, permissions, audit | `services/gateway/app/api/admin.py`, `auth/`, `audit/`, `models/tables.py`; 74 focused Gateway/Helm/Woo tests passed | Run acceptance against live current images: member/admin boundaries, revoke behavior, explicit member tool permission, and attributed success/failure audit rows. |
+| Gateway users, keys, roles, permissions, audit | `services/gateway/app/api/admin.py`, `auth/`, `audit/`, `models/tables.py`; 57 Gateway/Helm tests and 42 WooCommerce MCP tests passed. Calls must match the discovered upstream catalog before permission checks and execution. | Run acceptance against live current images: member/admin boundaries, revoke behavior, explicit member tool permission, and attributed success/failure audit rows. |
 | OpenAI-compatible tool-calling chat | `services/gateway/app/api/chat.py`; settings `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Test a real configured tool-calling model only after deployment/provider approval; require provider support for tool calling. |
 | Kubernetes isolation and storage | `infrastructure/helm/urumi/templates/`; 18 rendered NetworkPolicies, separate MySQL/PostgreSQL/WordPress PVCs | A rendered policy is not proof of enforcement. Verify live selectors and traffic in a separately approved acceptance test. |
 | CI and portable setup | `.github/workflows/ci.yml`; README and runbooks | CI workflow was not run remotely in this handoff. Fresh clone setup is documented but not freshly exercised. |
@@ -98,7 +101,13 @@ separately approved change plan. No credential rotation has occurred.
   are render assertions, not proof that the live CNI enforces them.
 - Admin bootstrap is not a credential rotation mechanism. The configured
   bootstrap key is hashed with `SECRET_KEY` and added only when the admin user
-  does not yet exist. Existing users and keys are preserved on later starts.
+  does not yet exist. For an existing admin, explicit recovery is required:
+  enable Helm value `bootstrapAdminKeyRecovery`, apply the intended bootstrap
+  Secret through an approved plan, verify `/api/me`, then disable the flag.
+  Recovery adds a key without revoking existing keys. It refuses a non-admin
+  account, a configured key already owned by another user, or a matching
+  revoked key; choose a different key rather than reactivating a revoked one.
+  This code/chart change has not been deployed.
 - There is no Alembic migration workflow. SQLAlchemy `create_all` creates new
   tables at startup, but schema evolution for existing columns needs a planned
   migration process.
@@ -113,6 +122,9 @@ py -3.12 -m pytest -q tests/gateway tests/helm
 Push-Location .\services\woo-mcp
 py -3.12 -m pytest -q ..\..\tests\woo_mcp
 Pop-Location
+bash -n scripts/dev.sh
+docker build --tag urumi/gateway:local-validation services/gateway
+docker build --tag urumi/woo-mcp:local-validation services/woo-mcp
 Set-Location .\dashboard
 npm run build
 Set-Location ..
@@ -120,16 +132,17 @@ helm lint infrastructure/helm/urumi -f infrastructure/helm/urumi/values.yaml -f 
 helm lint infrastructure/helm/urumi -f infrastructure/helm/urumi/values.yaml -f infrastructure/helm/urumi/values-prod.yaml
 helm template urumi infrastructure/helm/urumi -f infrastructure/helm/urumi/values.yaml -f infrastructure/helm/urumi/values-local.yaml
 helm template urumi infrastructure/helm/urumi -f infrastructure/helm/urumi/values.yaml -f infrastructure/helm/urumi/values-prod.yaml
-py -3.12 -m compileall -q services\gateway\app
+py -3.12 -m compileall -q services\gateway\app services\woo-mcp\app scripts\smoke_test_woocommerce.py
 git diff --check
 ```
 
-Observed results: 53 Gateway/Helm tests and 21 WooCommerce MCP tests passed;
-dashboard build passed; both Helm lint and render pairs passed; rendered YAML
-parsed and policy count/provider Secret references were asserted; client-side
-Kubernetes dry-run validation passed; Python compile and diff checks passed.
-No `helm upgrade`, `kubectl apply` without `--dry-run`, database mutation, or
-credential change was performed.
+Observed in this sprint: 57 Gateway/Helm tests and 42 WooCommerce MCP tests
+passed; gateway and Woo MCP Docker builds passed; local setup shell syntax,
+Python compilation, and `git diff --check` passed. Helm lint/render, dashboard
+build, and client-side Kubernetes dry-run passed in the preceding session;
+Helm templates and dashboard source were unchanged here. No `helm upgrade`,
+`kubectl apply` without `--dry-run`, database mutation, live provider request,
+or credential change was performed.
 
 ## Cross-computer recovery and deployment gate
 

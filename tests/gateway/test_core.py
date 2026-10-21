@@ -42,19 +42,81 @@ def test_user_from_token_rejects_unknown_and_revoked_keys():
         assert revoked.value.status_code == 401
 
 
-def test_bootstrap_does_not_replace_existing_admin_key(monkeypatch):
+def _bootstrap_test_environment(monkeypatch):
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
     from app import main
     from app.db.session import Base
-    from app.models.tables import ApiKey, User
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
+    monkeypatch.setattr(main, "engine", engine)
+    monkeypatch.setattr(main, "SessionLocal", factory)
+    monkeypatch.setattr(main, "BOOTSTRAP_ADMIN_EMAIL", "admin@example.com")
+    monkeypatch.setattr(main, "BOOTSTRAP_ADMIN_KEY", "urumi_live_configured_admin_key_for_test")
+    monkeypatch.setattr(main, "BOOTSTRAP_ADMIN_KEY_RECOVERY", False)
+    monkeypatch.setattr(main, "SEED_SERVERS", [])
+    monkeypatch.setattr(main, "validate_runtime_config", lambda: None)
+    return main, factory
+
+
+def test_bootstrap_uses_transaction_scoped_postgres_advisory_lock():
+    from types import SimpleNamespace
+    from app import main
+
+    class FakeSession:
+        def __init__(self):
+            self.statements = []
+
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def execute(self, statement, parameters):
+            self.statements.append((str(statement), parameters))
+
+    db = FakeSession()
+    main._lock_bootstrap(db)
+
+    assert db.statements == [(
+        "SELECT pg_advisory_xact_lock(:lock_id)",
+        {"lock_id": main.BOOTSTRAP_LOCK_ID},
+    )]
+
+
+def test_bootstrap_creates_admin_and_key_on_first_start(monkeypatch):
+    from app.models.tables import ApiKey, User
+    from app.auth.rbac import user_from_token
+
+    main, factory = _bootstrap_test_environment(monkeypatch)
+    configured_key = main.BOOTSTRAP_ADMIN_KEY
+    main.bootstrap()
+
+    with factory() as db:
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        assert admin.role == "ADMIN"
+        assert db.query(ApiKey).filter_by(user_id=admin.id).count() == 1
+        assert user_from_token(db, configured_key).id == admin.id
+
+
+def test_bootstrap_repeated_startup_is_idempotent(monkeypatch):
+    from app.models.tables import ApiKey, User
+
+    main, factory = _bootstrap_test_environment(monkeypatch)
+    main.bootstrap()
+    main.bootstrap()
+
+    with factory() as db:
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        assert db.query(ApiKey).filter_by(user_id=admin.id).count() == 1
+
+
+def test_bootstrap_does_not_reconcile_mismatched_key_without_explicit_recovery(monkeypatch):
+    from app.models.tables import ApiKey, User
+
+    main, factory = _bootstrap_test_environment(monkeypatch)
     old_key = "urumi_live_existing_admin_key_for_test"
-    replacement_key = "urumi_live_replacement_admin_key_for_test"
     with factory() as db:
         admin = User(email="admin@example.com", name="Admin", role="ADMIN")
         db.add(admin)
@@ -62,21 +124,104 @@ def test_bootstrap_does_not_replace_existing_admin_key(monkeypatch):
         db.add(ApiKey(user_id=admin.id, key_hash=hash_key(old_key), key_prefix=old_key[:14]))
         db.commit()
 
-    monkeypatch.setattr(main, "engine", engine)
-    monkeypatch.setattr(main, "SessionLocal", factory)
-    monkeypatch.setattr(main, "BOOTSTRAP_ADMIN_KEY", replacement_key)
-    monkeypatch.setattr(main, "BOOTSTRAP_ADMIN_EMAIL", "admin@example.com")
-    monkeypatch.setattr(main, "SEED_SERVERS", [])
-    monkeypatch.setattr(main, "validate_runtime_config", lambda: None)
-
     main.bootstrap()
 
     with factory() as db:
-        assert db.query(User).filter_by(email="admin@example.com").count() == 1
-        keys = db.query(ApiKey).filter_by(user_id=db.query(User).filter_by(email="admin@example.com").one().id).all()
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        keys = db.query(ApiKey).filter_by(user_id=admin.id).all()
         assert len(keys) == 1
         assert keys[0].key_hash == hash_key(old_key)
-        assert keys[0].key_hash != hash_key(replacement_key)
+        assert keys[0].key_hash != hash_key(main.BOOTSTRAP_ADMIN_KEY)
+
+
+def test_explicit_bootstrap_recovery_adds_configured_key_and_preserves_other_data(monkeypatch):
+    from app.models.tables import ApiKey, AuditLog, McpServer, User
+    from app.auth.rbac import user_from_token
+
+    main, factory = _bootstrap_test_environment(monkeypatch)
+    main.BOOTSTRAP_ADMIN_KEY_RECOVERY = True
+    old_admin_key = "urumi_live_existing_admin_key_for_test"
+    unrelated_admin_key = "urumi_live_other_admin_key_for_test"
+    member_key = "urumi_live_member_key_for_test"
+    with factory() as db:
+        admin = User(email="admin@example.com", name="Existing Admin", role="ADMIN")
+        member = User(email="member@example.com", name="Member", role="MEMBER")
+        db.add_all([admin, member])
+        db.flush()
+        db.add_all([
+            ApiKey(user_id=admin.id, key_hash=hash_key(old_admin_key), key_prefix=old_admin_key[:14]),
+            ApiKey(user_id=admin.id, key_hash=hash_key(unrelated_admin_key), key_prefix=unrelated_admin_key[:14]),
+            ApiKey(user_id=member.id, key_hash=hash_key(member_key), key_prefix=member_key[:14]),
+            McpServer(name="preserved-server", url="http://example.invalid/mcp"),
+            AuditLog(user_id=admin.id, user_email=admin.email, tool_name="preserved-tool"),
+        ])
+        db.commit()
+
+    main.bootstrap()
+    main.bootstrap()
+
+    with factory() as db:
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        member = db.query(User).filter_by(email="member@example.com").one()
+        admin_keys = db.query(ApiKey).filter_by(user_id=admin.id).all()
+        assert {key.key_hash for key in admin_keys} == {
+            hash_key(old_admin_key),
+            hash_key(unrelated_admin_key),
+            hash_key(main.BOOTSTRAP_ADMIN_KEY),
+        }
+        assert all(not key.revoked for key in admin_keys)
+        assert user_from_token(db, main.BOOTSTRAP_ADMIN_KEY).id == admin.id
+        assert user_from_token(db, old_admin_key).id == admin.id
+        assert user_from_token(db, unrelated_admin_key).id == admin.id
+        assert user_from_token(db, member_key).id == member.id
+        assert db.query(McpServer).filter_by(name="preserved-server").count() == 1
+        assert db.query(AuditLog).filter_by(tool_name="preserved-tool").count() == 1
+
+
+def test_explicit_recovery_refuses_to_reactivate_a_revoked_bootstrap_key(monkeypatch):
+    import pytest
+    from app.models.tables import ApiKey, User
+
+    main, factory = _bootstrap_test_environment(monkeypatch)
+    main.BOOTSTRAP_ADMIN_KEY_RECOVERY = True
+    with factory() as db:
+        admin = User(email="admin@example.com", role="ADMIN")
+        db.add(admin)
+        db.flush()
+        db.add(ApiKey(
+            user_id=admin.id,
+            key_hash=hash_key(main.BOOTSTRAP_ADMIN_KEY),
+            key_prefix=main.BOOTSTRAP_ADMIN_KEY[:14],
+            revoked=True,
+        ))
+        db.commit()
+
+    with pytest.raises(RuntimeError, match="configured bootstrap key is revoked"):
+        main.bootstrap()
+
+    with factory() as db:
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        key = db.query(ApiKey).filter_by(user_id=admin.id).one()
+        assert key.revoked is True
+
+
+def test_explicit_recovery_refuses_non_admin_bootstrap_email(monkeypatch):
+    import pytest
+    from app.models.tables import ApiKey, User
+
+    main, factory = _bootstrap_test_environment(monkeypatch)
+    monkeypatch.setattr(main, "BOOTSTRAP_ADMIN_KEY_RECOVERY", True)
+    with factory() as db:
+        member = User(email="admin@example.com", role="MEMBER")
+        db.add(member)
+        db.commit()
+
+    with pytest.raises(RuntimeError, match="existing account to have the ADMIN role"):
+        main.bootstrap()
+
+    with factory() as db:
+        assert db.query(User).filter_by(email="admin@example.com").one().role == "MEMBER"
+        assert db.query(ApiKey).count() == 0
 
 
 def test_encrypt():
@@ -142,7 +287,7 @@ def test_ungranted_member_tool_call_is_denied_before_upstream(monkeypatch):
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.pool import StaticPool
     from app.db.session import Base
-    from app.models.tables import McpServer, User
+    from app.models.tables import McpServer, McpToolCache, User
     from app.routing import router
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -152,6 +297,10 @@ def test_ungranted_member_tool_call_is_denied_before_upstream(monkeypatch):
         member = User(email="member@example.com", role="MEMBER")
         db.add(member)
         db.add(McpServer(name="weather", url="http://weather-mcp:8000/mcp", enabled=True))
+        db.add(McpToolCache(server_name="weather", tools_json=[{
+            "name": "get_weather", "description": "Current weather",
+            "inputSchema": {"type": "object"},
+        }]))
         db.commit()
         db.refresh(member)
 
@@ -165,9 +314,125 @@ def test_ungranted_member_tool_call_is_denied_before_upstream(monkeypatch):
     import asyncio
     result = asyncio.run(router.execute(member, "weather__get_weather", {"city": "Pune"}))
     assert result["isError"] is True
-    assert "may not call" in result["content"][0]["text"]
+    assert result["content"][0]["text"] == "tool is not permitted for this user"
     assert len(audited) == 1
     assert audited[0][0][5] is False
+
+
+def test_gateway_refuses_undiscovered_tool_without_echoing_or_auditing_input(monkeypatch):
+    import asyncio
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db.session import Base
+    from app.models.tables import McpServer, McpToolCache, User
+    from app.routing import router
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with Session(engine) as db:
+        admin = User(email="admin@example.com", role="ADMIN")
+        db.add(admin)
+        db.add(McpServer(name="weather", url="http://weather-mcp:8000/mcp", enabled=True))
+        db.add(McpToolCache(server_name="weather", tools_json=[{
+            "name": "get_weather", "description": "Current weather",
+            "inputSchema": {"type": "object"},
+        }]))
+        db.commit()
+        db.refresh(admin)
+
+    audited = []
+    monkeypatch.setattr(router, "SessionLocal", factory)
+    monkeypatch.setattr(router.audit, "record", lambda *args, **kwargs: audited.append(args))
+
+    async def unexpected_call(*args, **kwargs):
+        raise AssertionError("undiscovered tool must not reach upstream")
+
+    monkeypatch.setattr(router.client, "call_tool", unexpected_call)
+    supplied_name = "weather__private-token-value"
+    result = asyncio.run(router.execute(admin, supplied_name, {}))
+
+    assert result["isError"] is True
+    assert "private-token-value" not in result["content"][0]["text"]
+    assert audited[0][1:3] == ("", "<unknown>")
+    assert "private-token-value" not in str(audited[0])
+    malformed = asyncio.run(router.execute(admin, "private-token-value", {}))
+    assert malformed["isError"] is True
+    assert "private-token-value" not in malformed["content"][0]["text"]
+    assert "private-token-value" not in str(audited[1])
+
+
+def test_gateway_executes_discovered_tool_for_granted_member(monkeypatch):
+    import asyncio
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db.session import Base
+    from app.models.tables import McpServer, McpToolCache, ToolPermission, User
+    from app.routing import router
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with Session(engine) as db:
+        member = User(email="member@example.com", role="MEMBER")
+        db.add(member)
+        db.add(McpServer(name="weather", url="http://weather-mcp:8000/mcp", enabled=True))
+        db.add(McpToolCache(server_name="weather", tools_json=[{
+            "name": "get_weather", "description": "Current weather",
+            "inputSchema": {"type": "object"},
+        }]))
+        db.add(ToolPermission(role="MEMBER", tool="weather__get_weather", allowed=True))
+        db.commit()
+        db.refresh(member)
+
+    calls, audited = [], []
+    monkeypatch.setattr(router, "SessionLocal", factory)
+    monkeypatch.setattr(router, "decrypt", lambda _: "")
+    monkeypatch.setattr(router.audit, "record", lambda *args, **kwargs: audited.append(args))
+
+    async def fake_call(url, credential, tool, arguments, timeout):
+        calls.append((url, tool, arguments))
+        return {"content": [{"type": "text", "text": "18 C"}], "isError": False}
+
+    monkeypatch.setattr(router.client, "call_tool", fake_call)
+    result = asyncio.run(router.execute(member, "weather__get_weather", {"city": "Pune"}))
+
+    assert result["content"][0]["text"] == "18 C"
+    assert calls == [("http://weather-mcp:8000/mcp", "get_weather", {"city": "Pune"})]
+    assert audited[0][5] is True
+
+
+def test_mcp_endpoint_dispatches_authenticated_tool_call(monkeypatch):
+    import asyncio
+    import json
+    from app.mcp import server
+
+    class FakeRequest:
+        headers = {"authorization": "Bearer test-key"}
+
+        async def json(self):
+            return {
+                "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                "params": {"name": "woocommerce__get_products", "arguments": {"per_page": 5}},
+            }
+
+    class FakeUser:
+        role = "ADMIN"
+
+    called = []
+    monkeypatch.setattr(server, "user_from_token", lambda db, token: FakeUser())
+
+    async def fake_execute(user, name, arguments, source):
+        called.append((user.role, name, arguments, source))
+        return {"content": [{"type": "text", "text": "products"}], "isError": False}
+
+    monkeypatch.setattr(server.R, "execute", fake_execute)
+    response = asyncio.run(server.mcp_endpoint(FakeRequest(), None))
+
+    assert called == [("ADMIN", "woocommerce__get_products", {"per_page": 5}, "mcp")]
+    assert json.loads(response.body)["result"]["isError"] is False
 
 
 def test_upstream_refresh_persists_and_clears_shared_tool_catalog(monkeypatch):
@@ -209,11 +474,14 @@ def test_upstream_refresh_persists_and_clears_shared_tool_catalog(monkeypatch):
 
 def test_ssrf():
     import pytest
+    from app.api.admin import _safe_url
     for url in (
         "http://169.254.169.254/latest",
         "http://metadata.google.internal/computeMetadata/v1",
         "http://user:password@woo-mcp:8000/mcp",
         "file:///etc/passwd",
+        "http://woo-mcp:8000/mcp?token=secret",
+        "http://woo-mcp:8000/mcp#secret",
     ):
         with pytest.raises(ValueError):
             validate_url(url)
@@ -221,6 +489,55 @@ def test_ssrf():
     validate_url("http://woo-mcp:8000/mcp")
     validate_url("http://localhost:8000/mcp")
     validate_url("http://127.0.0.1:8000/mcp")
+    with pytest.raises(ValueError):
+        validate_url("http://woo-mcp:invalid/mcp")
+    safe_url = _safe_url("https://user:secret@example.invalid/mcp?token=secret#fragment")
+    assert safe_url == "https://example.invalid/mcp"
+    assert "secret" not in safe_url
+
+
+def test_upstream_errors_are_sanitized_in_tool_response_and_audit(monkeypatch):
+    import asyncio
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db.session import Base
+    from app.models.tables import McpServer, McpToolCache, User
+    from app.mcp.client import UpstreamError
+    from app.routing import router
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with Session(engine) as db:
+        admin = User(email="admin@example.com", role="ADMIN")
+        db.add(admin)
+        db.add(McpServer(name="weather", url="http://weather-mcp:8000/mcp", enabled=True))
+        db.add(McpToolCache(server_name="weather", tools_json=[{
+            "name": "get_weather", "description": "Current weather",
+            "inputSchema": {"type": "object"},
+        }]))
+        db.commit()
+
+    audited = []
+    monkeypatch.setattr(router, "SessionLocal", factory)
+    monkeypatch.setattr(router, "decrypt", lambda _: "")
+    monkeypatch.setattr(router.audit, "record", lambda *args, **kwargs: audited.append((args, kwargs)))
+
+    async def failed_call(*args, **kwargs):
+        raise UpstreamError("connection_error", "https://internal/?token=never-return-this")
+
+    monkeypatch.setattr(router.client, "call_tool", failed_call)
+    with factory() as db:
+        admin = db.query(User).filter_by(email="admin@example.com").one()
+        result = asyncio.run(router.execute(admin, "weather__get_weather", {}, "mcp"))
+
+    message = result["content"][0]["text"]
+    assert message == "Could not connect to upstream MCP server"
+    assert "never-return-this" not in message
+    assert audited[0][0][6] == message
+    assert "never-return-this" not in audited[0][0][6]
+    assert router.safe_stored_error("connection_error: https://internal/?token=never-return-this") == message
 
 
 def test_production_config_fails_closed(monkeypatch):

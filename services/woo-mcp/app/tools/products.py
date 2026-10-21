@@ -30,13 +30,21 @@ def validate_product(name: str, regular_price: str, status: str) -> tuple[str, s
 
 
 def register(mcp):
-    @mcp.tool()
-    async def list_products(per_page: int = 20, search: str = "") -> list[dict]:
-        """List products in the WooCommerce store."""
+    async def products_page(per_page: int, search: str) -> list[dict]:
         params = {"per_page": max(1, min(per_page, 100))}
         if search and search.strip():
             params["search"] = search.strip()[:100]
         return [_p(p) for p in await request("GET", "/products", params)]
+
+    @mcp.tool()
+    async def list_products(per_page: int = 20, search: str = "") -> list[dict]:
+        """List products in the WooCommerce store."""
+        return await products_page(per_page, search)
+
+    @mcp.tool()
+    async def get_products(per_page: int = 20, search: str = "") -> list[dict]:
+        """Get products from the WooCommerce store, optionally filtered by search text."""
+        return await products_page(per_page, search)
 
     @mcp.tool()
     async def create_product(name: str, regular_price: str, description: str = "", status: str = "draft") -> dict:

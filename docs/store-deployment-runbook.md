@@ -36,6 +36,16 @@ Use only disposable local values for a local cluster. Never copy local demo cred
 
 If PowerShell cannot run the shell script, use Git Bash or WSL. The script creates a k3d cluster if needed, builds the service images, imports them, and installs/upgrades the chart.
 
+The script explicitly targets `k3d-urumi/default`. On an existing cluster it
+checks reachability and the `urumi` Helm release, warns that Secrets,
+NetworkPolicies, workloads, and other chart resources may change, then requires
+an exact interactive confirmation. It refuses non-interactive upgrades. This
+gate is not a substitute for reviewing a redacted plan; do not run it against
+a shared cluster or the existing revision-7 release until the proposed changes
+have been reconciled and approved. The script does not deploy an LLM key unless
+`LLM_API_KEY` is present in its launch environment; Helm release data retains
+the resulting chart values.
+
 Then inspect actual cluster state:
 
 ```powershell
@@ -64,7 +74,7 @@ Open `http://store.urumi.local` and `http://dashboard.urumi.local`.
 3. Sign into `/wp-admin` and verify the order number, line items, amount, payment method and initial status.
 4. Set `WOO_BASE_URL`, `WOO_CONSUMER_KEY`, and `WOO_CONSUMER_SECRET` in the terminal, then run `python scripts/smoke_test_woocommerce.py`.
 5. Set `WOO_TEST_ORDER_ID` to a disposable test order to exercise get-order and same-status update behavior.
-6. Confirm all five WooCommerce MCP tools through the gateway, not by calling the upstream from the dashboard/client.
+6. Confirm `get_products`, `get_orders`, `get_customer`, and `create_order` through the gateway; call `create_order` only with `test_order=true` and a disposable product.
 7. Record the product and order IDs before restarting pods.
 
 ## 5. Prove persistence
@@ -84,7 +94,7 @@ After both become Ready, re-open the storefront and wp-admin. The previously rec
 - **wp-setup is Pending:** inspect pod events and PVC access mode / scheduling.
 - **wp-setup is BackOff:** inspect `kubectl logs job/wp-setup`; confirm WordPress has initialized `wp-config.php`, MySQL is ready, and the CLI container can mount the WordPress volume.
 - **Store redirects to the wrong scheme/host:** check `wordpress.scheme`, `ingress.storeHost`, and forwarded-proto handling.
-- **REST smoke test gets 401/403:** verify the WooCommerce API key has the intended permissions and that the exact consumer key/secret are injected into the Woo MCP container.
+- **REST smoke test gets 401/403:** verify the WooCommerce API key has the intended permissions and that the consumer key/secret are injected into the Woo MCP container. The smoke script signs requests with OAuth 1.0a HMAC-SHA256; it does not put the consumer secret in the URL.
 - **REST smoke test cannot connect:** verify service DNS and that the configured base URL is reachable from inside the cluster. Do not expose MySQL or the Woo MCP publicly to work around networking.
 - **Products/orders vanish after restart:** stop and inspect PVC bindings and mount paths; do not mark persistence passed.
 

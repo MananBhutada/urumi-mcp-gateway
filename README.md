@@ -10,7 +10,7 @@ Dashboard / Chat / Cursor / MCP Inspector → ONE GATEWAY URL (/mcp) → woocomm
 
 ## Layout
 - services/gateway: FastAPI gateway, MCP server/client, admin API, chat and audit
-- services/woo-mcp: candidate-written WooCommerce MCP (5 product/order tools)
+- services/woo-mcp: WooCommerce MCP with product/order/customer tools
 - services/weather-mcp and services/currency-mcp: additional upstream MCPs
 - dashboard: React + TypeScript + Vite
 - infrastructure/helm/urumi: one chart with local and production values
@@ -47,6 +47,18 @@ was tested in the latest verification. The exact tests observed for the current
 working tree are recorded in [docs/STATUS.md](docs/STATUS.md).
 
 ## Quick start (disposable local cluster)
+
+Set `LLM_API_KEY` in the protected environment used to launch the script if
+chat should be enabled; without it, chat returns a configuration error. The
+script stages this value in a permission-restricted temporary file and removes
+that file on exit. Helm still stores chart values in release data, so this
+workflow is only for a disposable local cluster.
+Before using an existing `k3d-urumi` cluster, the script checks its context
+and release and requires an interactive typed confirmation; it refuses a
+non-interactive existing-release upgrade. This is not a substitute for
+reviewing a redacted plan. Do not target a shared cluster or the existing
+revision-7 release without separately reviewing the proposed changes.
+
 ```bash
 ./scripts/dev.sh
 ```
@@ -60,10 +72,28 @@ MCP client config (Cursor / Inspector): URL `http://dashboard.urumi.local/mcp`, 
 ## Production values
 Use values-prod.yaml and provide unique secrets through a secret manager or deployment-time secret injection. The production gateway refuses to start with a weak gateway secret, a weak bootstrap admin key, or SQLite. Do not commit real credentials or a populated production values file.
 
+Bootstrap-key recovery is disabled by default. Because API-key records do not
+identify which key originally bootstrapped an admin, recovery must be explicitly
+enabled with Helm value `bootstrapAdminKeyRecovery: true` after setting the
+intended bootstrap key through the approved secret path. Startup then adds that
+key to the existing ADMIN account only if its hash is not already assigned;
+other keys are not revoked. Verify sign-in, then disable the recovery value.
+The PostgreSQL transaction advisory lock serializes this operation across
+Gateway replicas.
+
 ## Chat model provider
 The chat layer uses an OpenAI-compatible chat-completions API. Configure `LLM_BASE_URL` (provider base URL, such as `https://openrouter.ai/api/v1`), `LLM_MODEL` (the provider's exact model identifier), and `LLM_API_KEY`. The selected provider and model must support function/tool calling. These settings have empty defaults, so chat stays unavailable until all three are configured.
 
 In Kubernetes, set `llm.baseUrl` and `llm.model` in Helm values and supply the key as `secrets.llmApiKey`; the chart puts it in the `urumi-secrets` Secret and injects it into the gateway from that Secret. Use a protected file with Helm `--set-file secrets.llmApiKey=...`; do not put the key in committed values, command-line `--set` arguments, logs, or pod arguments. Helm release data retains values. This chart currently creates its Secret from Helm values rather than referencing an externally managed Secret, so production deployments that require external secret management need that integration configured before use.
+
+The WooCommerce MCP exposes `get_products`, `get_orders`, `get_customer`,
+`create_order`, and the existing product/order tools. `create_order` is
+restricted to an explicitly requested, unpaid pending test order and marks it
+with `_urumi_test_order`; it accepts no customer details and never marks an
+order paid. A success response requires WooCommerce to confirm the pending,
+unpaid state and marker; inspect the store before retrying if confirmation
+fails. Gateway members need explicit per-tool grants; administrators keep
+access to all discovered tools.
 
 ## Team invitations
 An admin can create a seven-day, one-time invitation with POST /api/invitations using the admin bearer key and JSON body such as {"email":"member@example.com","role":"MEMBER"}. The response contains a one-time invite_token to place in your invitation link or share securely. The invitee accepts with POST /api/invitations/accept and {"token":"...","name":"..."}. Acceptance creates a user and returns a new API key once. Email delivery is not implemented; the invitee completes acceptance in the dashboard using the link fragment.
@@ -93,3 +123,5 @@ last redacted plan proposed 23 resource changes, including `urumi-secrets` and
 NetworkPolicies. See [docs/assessment-gap-matrix.md](docs/assessment-gap-matrix.md)
 for remaining assignment acceptance evidence. Local chart validation does not
 establish live-store, MCP-client, or production readiness.
+Follow [docs/live-acceptance-tests.md](docs/live-acceptance-tests.md) for the
+ordered final demo, including the unpaid WooCommerce test-order guard.

@@ -6,6 +6,7 @@ images:
   currencyMcp: urumi/currency-mcp:latest
   pullPolicy: IfNotPresent
 appEnv: development
+bootstrapAdminKeyRecovery: false
 llm:
   baseUrl: ""
   model: ""

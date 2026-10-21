@@ -12,6 +12,7 @@ from ..auth.api_keys import decrypt
 from ..auth.rbac import tool_allowed
 from ..audit import service as audit
 from ..mcp import client
+from ..mcp.client import UpstreamError
 from .collisions import namespace, split
 
 
@@ -29,6 +30,42 @@ def _store_tool_catalog(db, server_name: str, tools: list[dict]) -> None:
     db.execute(statement)
 
 
+def _safe_error_message(error: BaseException) -> str:
+    if isinstance(error, UpstreamError):
+        if error.kind == "timeout":
+            return "Upstream MCP request timed out"
+        if error.kind == "connection_error":
+            return "Could not connect to upstream MCP server"
+        return "Upstream MCP request failed"
+    if isinstance(error, LookupError):
+        return "Unknown or disabled MCP server or tool"
+    if isinstance(error, ValueError):
+        if str(error) in {
+            "upstream URL has an invalid port",
+            "url must be http(s) with a hostname",
+            "credentials, query parameters, and fragments must not be embedded in the upstream URL",
+            "metadata target not allowed",
+            "target address not allowed",
+        }:
+            return "Upstream MCP URL is invalid or not allowed"
+        return "Invalid MCP tool request"
+    if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
+        return "Upstream MCP request timed out"
+    return f"Gateway tool execution failed ({type(error).__name__})"
+
+
+def safe_stored_error(error: str) -> str:
+    """Map legacy stored error text to safe, stable dashboard messages."""
+    normalized = error.lower()
+    if "timeout" in normalized:
+        return "Upstream MCP request timed out"
+    if "url must be" in normalized or "target address not allowed" in normalized or "metadata target" in normalized:
+        return "Upstream MCP URL is invalid or not allowed"
+    if "connection_error" in normalized or "connect" in normalized or "unreachable" in normalized:
+        return "Could not connect to upstream MCP server"
+    return "Upstream MCP request failed"
+
+
 def validate_url(url: str):
     """Reject malformed URLs and common SSRF targets before any upstream request.
 
@@ -37,10 +74,14 @@ def validate_url(url: str):
     cluster NetworkPolicies and an operator-managed hostname allowlist.
     """
     p = urlparse(url)
+    try:
+        p.port
+    except ValueError:
+        raise ValueError("upstream URL has an invalid port")
     if p.scheme not in ("http", "https") or not p.hostname:
         raise ValueError("url must be http(s) with a hostname")
-    if p.username is not None or p.password is not None:
-        raise ValueError("credentials must not be embedded in the upstream URL")
+    if p.username is not None or p.password is not None or p.query or p.fragment:
+        raise ValueError("credentials, query parameters, and fragments must not be embedded in the upstream URL")
     if p.hostname.lower().rstrip(".") in {
         "metadata.google.internal", "metadata", "instance-data"
     }:
@@ -74,7 +115,7 @@ async def refresh_server(srv_id: int):
         except Exception as e:  # isolate: never propagate across upstreams
             cache = db.get(McpToolCache, s.name)
             if cache: db.delete(cache)
-            s.status, s.last_error = "unreachable", str(e)[:300]
+            s.status, s.last_error = "unreachable", _safe_error_message(e)
         db.commit()
 
 
@@ -107,17 +148,25 @@ def tools_for(user: User, db) -> list[dict]:
 
 async def execute(user: User, name: str, args: dict, source: str = "mcp") -> dict:
     started = datetime.now(timezone.utc); t0 = time.monotonic()
-    server_name, tool = "", name
+    server_name, tool = "", "<unknown>"
     def finish(ok, err=""):
         audit.record(user, server_name, tool, started, int((time.monotonic() - t0) * 1000), ok, err, source)
     try:
-        server_name, tool = split(name)
+        requested_server, requested_tool = split(name)
         with SessionLocal() as db:
-            s = db.query(McpServer).filter_by(name=server_name).first()
+            s = db.query(McpServer).filter_by(name=requested_server).first()
             if not s or not s.enabled:
-                raise LookupError(f"unknown or disabled server: {server_name}")
+                raise LookupError("unknown or disabled server")
+            cache = db.get(McpToolCache, s.name)
+            if not cache or not any(
+                isinstance(cached_tool, dict)
+                and cached_tool.get("name") == requested_tool
+                for cached_tool in cache.tools_json
+            ):
+                raise LookupError("unknown or undiscovered tool")
+            server_name, tool = s.name, requested_tool
             if not tool_allowed(db, user.role, name):
-                raise PermissionError(f"role {user.role} may not call {name}")
+                raise PermissionError("tool is not permitted for this user")
             url, cred = s.url, decrypt(s.credential_encrypted)
         # Defense in depth: DB rows may predate validation or be changed outside the API.
         validate_url(url)
@@ -125,6 +174,8 @@ async def execute(user: User, name: str, args: dict, source: str = "mcp") -> dic
         finish(not res["isError"], "" if not res["isError"] else "tool reported error")
         return res
     except PermissionError as e:
-        finish(False, str(e)); return {"content": [{"type": "text", "text": str(e)}], "isError": True}
+        message = str(e)
+        finish(False, message); return {"content": [{"type": "text", "text": message}], "isError": True}
     except Exception as e:
-        finish(False, str(e)); return {"content": [{"type": "text", "text": f"gateway error: {e}"}], "isError": True}
+        message = _safe_error_message(e)
+        finish(False, message); return {"content": [{"type": "text", "text": message}], "isError": True}

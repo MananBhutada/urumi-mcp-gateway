@@ -20,6 +20,7 @@ spec:
               value: "postgresql+psycopg2://urumi:$(PG_PW)@postgres:5432/urumi"
             - {name: SECRET_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: gateway-secret-key}}}
             - {name: BOOTSTRAP_ADMIN_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: bootstrap-admin-key}}}
+            - {name: BOOTSTRAP_ADMIN_KEY_RECOVERY, value: {{ .Values.bootstrapAdminKeyRecovery | toString | quote }}}
             - {name: LLM_BASE_URL, value: {{ .Values.llm.baseUrl | quote }}}
             - {name: LLM_MODEL, value: {{ .Values.llm.model | quote }}}
             - {name: LLM_API_KEY, valueFrom: {secretKeyRef: {name: urumi-secrets, key: llm-api-key}}}

@@ -5,6 +5,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./urumi.db")
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")  # development fallback only
 BOOTSTRAP_ADMIN_EMAIL = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@urumi.local")
 BOOTSTRAP_ADMIN_KEY = os.getenv("BOOTSTRAP_ADMIN_KEY", "")
+BOOTSTRAP_ADMIN_KEY_RECOVERY = os.getenv("BOOTSTRAP_ADMIN_KEY_RECOVERY", "").strip() == "1"
 SEED_SERVERS = json.loads(os.getenv("SEED_SERVERS", "[]"))
 CONNECT_TIMEOUT = float(os.getenv("UPSTREAM_TIMEOUT", "5"))
 CALL_TIMEOUT = float(os.getenv("UPSTREAM_CALL_TIMEOUT", "30"))

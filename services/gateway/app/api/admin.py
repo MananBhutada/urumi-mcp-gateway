@@ -1,6 +1,7 @@
 import re
 import secrets
 import time
+from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -11,6 +12,21 @@ from ..auth.api_keys import generate_key, hash_key, encrypt
 from ..routing import router as R
 
 api = APIRouter(prefix="/api")
+
+
+def _safe_url(url: str) -> str:
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return "[invalid upstream URL]"
+    if not hostname:
+        return "[invalid upstream URL]"
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
+    netloc = f"{hostname}:{port}" if port else hostname
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
 # ---- identity
@@ -29,8 +45,9 @@ class ServerIn(BaseModel):
 
 def _srv(s: McpServer, db: Session):
     cache = db.get(McpToolCache, s.name)
-    return {"id": s.id, "name": s.name, "url": s.url, "enabled": s.enabled, "status": s.status,
-            "last_error": s.last_error, "tool_count": len(cache.tools_json) if cache else 0, "has_credential": bool(s.credential_encrypted)}
+    return {"id": s.id, "name": s.name, "url": _safe_url(s.url), "enabled": s.enabled, "status": s.status,
+            "last_error": R.safe_stored_error(s.last_error) if s.last_error else "",
+            "tool_count": len(cache.tools_json) if cache else 0, "has_credential": bool(s.credential_encrypted)}
 
 
 @api.get("/servers")

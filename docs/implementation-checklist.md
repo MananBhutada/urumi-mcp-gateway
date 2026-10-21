@@ -1,11 +1,11 @@
-# Implementation checklist — Urumi MCP Gateway
+# Implementation checklist â€” Urumi MCP Gateway
 
 Use this as the single working acceptance checklist. Mark an item complete only after the stated proof exists; code presence alone is not evidence. Keep this file current as the implementation and demo evolve.
 
 ## A. Kubernetes and Helm foundation
 - [ ] Local Kind/k3d cluster can be created from documented commands.
-- [ ] The same Helm chart renders with `values-local.yaml` and `values-prod.yaml`.
-- [ ] `helm lint` and `helm template` pass for both environments.
+- [x] The same Helm chart renders with `values-local.yaml` and `values-prod.yaml`.
+- [x] `helm lint` and `helm template` pass for both environments.
 - [ ] Every application image has a documented build/tag path; avoid mutable `latest` for production.
 - [ ] Deployments/StatefulSets have resource requests/limits and readiness/liveness probes.
 - [ ] Ingress exposes only the dashboard and storefront; no database or upstream MCP has public Ingress.
@@ -33,6 +33,8 @@ Use this as the single working acceptance checklist. Mark an item complete only 
 - [ ] `list_orders` works against real checkout orders.
 - [ ] `get_order` returns the selected order.
 - [ ] `update_order_status` changes the selected order and the change appears in wp-admin.
+- [ ] `get_products`, `get_orders`, and `get_customer` return only the documented fields.
+- [ ] `create_order` requires `test_order=true`; success is returned only after WooCommerce confirms pending/unpaid state and the marker, without customer details.
 - [ ] Invalid IDs, prices, statuses, upstream timeout and HTTP errors return safe errors.
 - [ ] Test suite passes in CI and includes mocked error cases plus live-store smoke-test instructions.
 
@@ -42,6 +44,7 @@ Use this as the single working acceptance checklist. Mark an item complete only 
 - [ ] Invalid JSON-RPC, unknown methods, invalid arguments and unauthenticated calls return appropriate errors.
 - [ ] Tool names are collision-safe and identify their upstream server.
 - [ ] External client can call WooCommerce, Weather and Currency tools through the same endpoint.
+- [ ] Calls for tools outside the refreshed discovery catalog are rejected before forwarding upstream.
 - [ ] Dashboard chat invokes tools only through the gateway, never directly against upstream MCP servers.
 
 ## E. Authentication, authorization and audit
