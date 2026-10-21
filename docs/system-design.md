@@ -81,6 +81,6 @@ WordPress/WooCommerce uses MySQL and persistent storage. PostgreSQL stores Gatew
 - Validate NetworkPolicies with actual allowed and denied connections, not only YAML rendering.
 - Run the live acceptance suite after deployment and retain evidence for checkout, order verification, permissions, audit, outage isolation and persistence.
 
-## Evidence boundary
+## Assignment scope and deployment boundary
 
-The project has recorded local-cluster demonstrations for checkout/order verification, chat/tool use, MCP Inspector, member key revocation, dashboard controls and Weather failure isolation. Automated test and Helm results are summarized in [STATUS.md](STATUS.md). These support the local assignment demo; they do not establish a completed public VPS deployment, external Secret Manager integration, backup/restore readiness or exhaustive security testing.
+The base assignment is implemented and demonstrated in the local Kubernetes environment. Recorded demonstrations cover checkout/order verification, chat/tool use, MCP Inspector, member key revocation, dashboard controls and Weather failure isolation. Automated test and Helm results are summarized in [STATUS.md](STATUS.md). Public VPS provisioning, external Secret Manager integration and backup/restore configuration are target-environment operations and are described separately from the completed local assignment.
