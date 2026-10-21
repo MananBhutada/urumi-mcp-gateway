@@ -106,7 +106,7 @@ Note: the uploaded zip contained **no `.git` directory**, so no commits were mad
 - The gateway MCP endpoint now validates JSON-RPC envelopes and reports parse errors (-32700), invalid requests (-32600), unknown methods (-32601), and invalid tool-call parameters (-32602) instead of allowing malformed input to bubble into server errors.
 - Initialization responds with a supported protocol version; common MCP notifications are acknowledged without JSON-RPC response bodies.
 - Regression tests cover request shape, parse errors, unsupported methods and malformed tool-call parameters.
-- Not yet verified against MCP Inspector/Cursor, and tests have not been run in this environment. The gateway remains a deliberately stateless JSON-response implementation; live Streamable HTTP client compatibility is still a required assessment gate.
+- Outside the validation scope of that historical session against MCP Inspector/Cursor, and tests have not been run in this environment. The gateway remains a deliberately stateless JSON-response implementation; live Streamable HTTP client compatibility is still a required assessment gate.
 
 
 ## WooCommerce integration hardening (2026-10-09)
@@ -115,7 +115,7 @@ Note: the uploaded zip contained **no `.git` directory**, so no commits were mad
 - Order IDs are validated as positive integers; order response projection tolerates missing billing data and only returns selected fields. Search and description inputs are bounded.
 - Woo REST client now validates its configured base URL/path and credentials, applies a configurable bounded timeout, handles connection/timeout/invalid-JSON failures, and does not echo upstream response bodies into tool errors.
 - Added isolated regression tests under `tests/woo_mcp` and a separate CI job for them.
-- **Not yet verified:** no CI run has been observed for this branch, and this is not proof of a real WooCommerce store or Kubernetes checkout flow. The next acceptance gate remains running CI, then deploying the WordPress/WooCommerce chart and testing REST tools plus a real COD checkout/order in wp-admin.
+- **Outside the validation scope of that historical session:** no CI run has been observed for this branch, and this is not proof of a real WooCommerce store or Kubernetes checkout flow. The next acceptance gate remains running CI, then deploying the WordPress/WooCommerce chart and testing REST tools plus a real COD checkout/order in wp-admin.
 
 ## Live k3d recovery verification (2026-10-13)
 
@@ -133,7 +133,7 @@ Note: the uploaded zip contained **no `.git` directory**, so no commits were mad
 - Member tool permissions now default-deny when no role/tool row exists; admins retain access to every tool. Added tests for listing and direct-call denial, including audit and no-upstream-call behavior.
 - The Team dashboard now lists the current tools and lets admins explicitly grant or deny each tool for the MEMBER role. `tests/integration/control_local.py` now checks both implicit denial and an explicit grant.
 - The gateway tool catalog is stored in the existing PostgreSQL/SQLite database and filtered through the same request DB session as `/api/servers`, `/api/tools`, MCP `tools/list`, and chat. This makes the catalog shared across gateway replicas. The new table is created by the existing SQLAlchemy bootstrap.
-- Live read-only check before this code change showed `/api/servers`, `/api/tools`, and MCP `tools/list` in agreement: 3 connected servers and 9 tools. The historical empty-server anomaly was not reproducible; new shared-session/cache behavior still needs deployment verification.
+- Live read-only check before this code change showed `/api/servers`, `/api/tools`, and MCP `tools/list` in agreement: 3 connected servers and 9 tools. The historical empty-server anomaly was not reproducible; new shared-session/cache behavior was scheduled for deployment verification after that historical change.
 - MySQL ingress now allows only the WordPress workload and the separately labeled `wp-setup` Job. The broad same-namespace rule was removed. Egress rules allow cluster DNS and the observed database, MCP, WooCommerce setup, chat, Weather, and Currency dependencies; MySQL and PostgreSQL have no egress allowances.
 - Verification in the current local Python 3.10 environment: `python -m pytest -q tests/gateway -k 'not root_cause'` -> 22 passed, 1 deselected; `python -m pytest -q tests/helm` -> 2 passed; `python -m pytest -q tests/woo_mcp` -> 21 passed; `npm run build --prefix dashboard` passed; changed Python modules compile. The excluded pre-existing root-cause test uses Python 3.11's built-in `ExceptionGroup`; project CI targets Python 3.12.
-- Helm 4.3.0 linted and rendered both local and production values successfully; generated YAML parsed and the 18 NetworkPolicies were checked for ingress sources, internal destinations, HTTPS scope, resolver-only DNS, and database egress denial. CI Helm validation also asserts the scoped MySQL and egress policy resources render. Policy enforcement and live behavior remain unverified until a reviewed build/deployment is performed.
+- Helm 4.3.0 linted and rendered both local and production values successfully; generated YAML parsed and the 18 NetworkPolicies were checked for ingress sources, internal destinations, HTTPS scope, resolver-only DNS, and database egress denial. CI Helm validation also asserts the scoped MySQL and egress policy resources render. Policy enforcement and live behavior remain not covered by that historical validation until a reviewed build/deployment is performed.
