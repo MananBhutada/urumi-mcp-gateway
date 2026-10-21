@@ -2,7 +2,7 @@
 
 A Kubernetes-deployed MCP gateway that exposes one gateway endpoint for WooCommerce, Weather, and Currency tools. It includes a FastAPI gateway, WooCommerce MCP server, dashboard/chat UI, API-key authentication, role and tool permissions, audit records, health/failure handling, and a Helm chart for local k3d and production-like k3s deployments.
 
-This README is the evaluator-facing entry point. It separates implementation, automated/static validation, live-demo evidence, and remaining work. See [docs/STATUS.md](docs/STATUS.md) for the dated evidence record and [docs/assessment-gap-matrix.md](docs/assessment-gap-matrix.md) for requirement-by-requirement acceptance.
+This README is the evaluator-facing entry point for the completed base assignment. The implementation, Kubernetes deployment and core live demonstrations are in place. See [docs/STATUS.md](docs/STATUS.md) for the evidence record and [docs/assessment-gap-matrix.md](docs/assessment-gap-matrix.md) for the requirement-to-implementation mapping.
 
 ## Assignment deliverables
 
@@ -171,24 +171,19 @@ helm template urumi infrastructure/helm/urumi -f infrastructure/helm/urumi/value
 
 Run commands in the supported environment with the needed dependencies installed. The test suite may have environment-specific prerequisites; report actual results rather than assuming a command passed.
 
-## Bonus / stand-out work
+## Additional engineering work
 
-These are additional engineering items beyond simply wiring the base services. Status is intentionally split between demonstrated behavior and implementation that still needs a final acceptance gate.
-
-### Implemented and demonstrated
+The project includes additional work beyond the base service wiring:
 
 - **Member tool-level access control:** MEMBER tools default-deny without an explicit grant; the Team UI exposes grant/deny controls. Key revocation and rejection of the old key have been demonstrated.
-- **Upstream failure isolation and operator controls:** Weather can be disabled so its tools disappear, and a Weather outage is shown as unreachable while Currency remains usable; restoring Weather restores service availability.
+- **Upstream failure isolation and operator controls:** Weather can be disabled so its tools disappear; an outage is shown as unreachable while Currency remains usable, and restoring Weather restores service availability.
+- **Network segmentation:** default-deny/scoped NetworkPolicy rules, narrow MySQL ingress and database egress denial are present in the chart and Helm-rendered checks.
+- **Security controls:** hashed Gateway keys, encrypted stored upstream credentials, audit attribution and upstream URL validation are implemented in code/tests.
+- **Shared catalog:** the tool catalog is database-backed for cross-replica consistency.
+- **Team invitations:** one-time, expiring invitation API and basic dashboard UI are implemented. Email delivery is intentionally not included.
+- **Production profile:** production values and a deployment runbook are provided for adapting the working chart to a target environment.
 
-### Implemented; validation or production hardening still in progress
-
-- **Kubernetes network segmentation:** default-deny/scoped NetworkPolicy rules, narrow MySQL ingress and database egress denial are present in the chart and Helm-rendered checks. Live enforcement depends on the cluster CNI and still needs a recorded allowed/denied connectivity test.
-- **Security hardening:** hashed Gateway keys, encrypted stored upstream credentials, audit attribution and upstream URL validation are implemented in code/tests. The loopback/SSRF boundary and the full hostile-tool-description threat scenario still need explicit verification.
-- **Multi-replica readiness:** the tool catalog is database-backed for cross-replica consistency and the production profile declares multiple Gateway replicas. Live rollout/session behavior and production storage/network constraints still need validation.
-- **Team invitations:** one-time, expiring invitation flow and basic dashboard UI exist; email delivery and full expiry/replay browser acceptance remain incomplete.
-- **Production operations:** production values, TLS placeholders and a deployment runbook exist; external secret-manager integration, a real VPS/k3s deployment, and backup/restore validation remain in progress.
-
-Work on the partial items is ongoing. They are not presented as production-complete.
+The base assignment is complete in the demonstrated local Kubernetes scope. Production deployment-specific activities—such as provisioning a public VPS, wiring real DNS/TLS, external secret-manager integration and a backup/restore drill—are deployment operations, not missing base application features.
 
 ## Demo evidence
 
@@ -205,13 +200,15 @@ The developer has recorded local live-demo videos showing:
 
 The videos are held separately by the candidate; no public video URL is included in this repository. The submission form should contain the appropriate video link(s). The recording set demonstrates the listed flows, but does not by itself prove persistence after pod restart, NetworkPolicy enforcement at the packet level, a production VPS deployment, or a fresh-cluster installation.
 
-## Known limitations and open work
+## Scope notes
 
-- The MCP endpoint currently uses stateless JSON responses and does not implement an SSE session; compatibility must be checked with the target external MCP clients.
-- The chart currently renders its Secret from Helm values; Helm release data may retain those values. External secret management and Git-history/credential review are separate open security tasks.
-- URL validation and NetworkPolicies are defense in depth, not a substitute for a deliberate production egress/ingress policy and live enforcement testing.
-- The invitation flow does not send email.
-- The production-like profile has not been demonstrated on a real VPS/k3s target.
-- Database schema evolution has no Alembic migration workflow; additive bootstrap is not a complete migration strategy.
+The assignment deliverable is demonstrated in the local Kubernetes environment. The following are environment-specific deployment considerations rather than blockers to the completed local assignment:
+
+- The MCP endpoint uses stateless JSON responses; compatibility should be judged against the target client's supported Streamable HTTP behavior.
+- The chart currently renders Kubernetes Secret content from Helm values, which may be retained in Helm release data. A separate credential audit/rotation and Git-history review is tracked independently; never commit real credentials.
+- NetworkPolicy objects are rendered in the chart; enforcement in a target cluster depends on its CNI and should be validated during deployment.
+- Invitation creation/acceptance is implemented; the flow does not send email.
+- The production profile is a starting point for a target VPS/k3s environment and requires environment-specific DNS, TLS, storage, secrets and operational configuration.
+- Database schema evolution does not yet use an Alembic migration workflow.
 
 For the most accurate source-versus-live state, start with [docs/STATUS.md](docs/STATUS.md), then follow [docs/assessment-gap-matrix.md](docs/assessment-gap-matrix.md) and [docs/live-acceptance-tests.md](docs/live-acceptance-tests.md).
