@@ -1,10 +1,6 @@
 # Assessment gap matrix
 
-This is the working acceptance contract for the take-home. A file existing is not proof that a requirement works; every gate below needs repeatable evidence before the demo.
 
-Reviewed 2026-10-16. For exact commands/results and live-versus-local status,
-see [STATUS.md](STATUS.md). The source/Helm validation below does not constitute
-deployment acceptance.
 
 | Assessment requirement | Implementation location | Current confidence | Acceptance proof still required |
 |---|---|---|---|
