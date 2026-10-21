@@ -2,9 +2,9 @@
 
 ## Scope and trust boundaries
 
-The gateway is the policy enforcement point between users/chat clients and the WooCommerce, Weather and Currency MCP servers. Gateway API keys identify Urumi users; upstream credentials are server-side credentials and are not user identity tokens. Kubernetes NetworkPolicies provide an additional network boundary, but their presence in YAML is not proof that a cluster CNI enforces them.
+The gateway is the policy enforcement point between users/chat clients and the WooCommerce, Weather and Currency MCP servers. Gateway API keys identify Urumi users; upstream credentials are server-side credentials and are not user identity tokens. Kubernetes NetworkPolicies provide an additional network boundary. The chart includes scoped policies; live enforcement is determined by the selected cluster CNI and is part of environment deployment validation.
 
-## Threats, controls and residual risk
+## Threats, implemented controls and deployment considerations
 
 | Threat / attacker capability | Current control | Residual risk / acceptance evidence |
 |---|---|---|
@@ -19,7 +19,7 @@ The gateway is the policy enforcement point between users/chat clients and the W
 | A compromised workload moves laterally to databases or other workloads | NetworkPolicy templates use default-deny/scoped ingress, narrow MySQL ingress to WordPress and the setup Job, and deny database egress. MCP/DB services are internal rather than intentionally public. Workload security settings include non-root execution where configured. | Helm rendering validates policy objects, not packet-level enforcement. Record the cluster CNI, test an allowed and a denied connection, and verify that no public Ingress/Service exposes MCP or database ports. |
 | One upstream hangs or fails | Bounded connection/call timeouts, per-call sessions and per-upstream health/failure handling reduce cross-server impact. | Rate limits, circuit breakers and concurrency caps are further hardening. Test that one stopped or slow server does not block unrelated upstream tools. |
 | A revoked key is reused | Request authentication checks key validity rather than trusting a previously established UI state. | A live MCP-client test should revoke the key, make another request and confirm rejection. UI state alone is not evidence of server-side revocation. |
-| Helm/deployment values leak secrets | Kubernetes Secret wiring is present, and the production values file uses placeholders. | The local values file contains disposable demo credentials, and the chart currently creates Secret content from Helm values; Helm release data can retain supplied values. A separate secret audit/rotation and Git-history review remains open. Do not claim production secret-manager integration is complete. |
+| Helm/deployment values leak secrets | Kubernetes Secret wiring is present, and the production values file uses placeholders. | The local values file contains disposable demo credentials, and the chart currently creates Secret content from Helm values; Helm release data can retain supplied values. A separate secret audit/rotation and Git-history review is a deployment-specific consideration. Do not claim production secret-manager integration is complete. |
 
 ## Security invariants
 
