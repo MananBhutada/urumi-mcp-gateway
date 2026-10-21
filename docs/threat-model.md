@@ -1,15 +1,35 @@
 # Threat model
 
-| Threat | Current control | Residual risk / follow-up |
-|---|---|---|
-| Stolen DB leaks user API keys | HMAC-SHA256 hashes stored; raw key shown once | Rotate the gateway secret carefully; add key expiry and rate limits |
-| Upstream credential exposure | Fernet-encrypted at rest; credential write-only in admin API | Rotate encryption secret and upstream credentials operationally |
-| Member escalates to admin operations | Admin dependencies protect mutation endpoints | Add automated endpoint-by-endpoint authorization tests |
-| Member calls a hidden tool directly | Permission checked in execution path as well as tool listing; missing role/tool rows default-deny | Admin must explicitly allow each tool a member role should use |
-| SSRF through upstream registration or a modified DB row | URL validation runs on registration, health refresh and before tool calls; non-HTTP(S), embedded URL credentials, metadata hostnames and selected unsafe IP ranges are rejected | Private service DNS is intentionally allowed in-cluster; hostname allowlisting and DNS-rebinding-resistant egress enforcement remain necessary for hostile/multi-tenant admin scenarios |
-| Lateral movement in Kubernetes | NetworkPolicies, non-root workload settings, no public Service for MCP/DB | Must verify rendered policies and live traffic on a real cluster |
-| Slow or unavailable upstream | Connection/call timeouts, per-call sessions, failures isolated by upstream | Add rate limits, circuit breakers and concurrency caps |
-| Revoked key reuse | Key validity checked on every request | Verify with an external MCP client, not only local SDK tests |
-| Prompt injection through tool results | Chat tools route through gateway | Tool output remains untrusted; test prompt injection and add confirmation for destructive tools |
+## Scope and trust boundaries
 
-Production configuration now fails startup unless a sufficiently long unique gateway secret and admin key are supplied and PostgreSQL is configured. Shared chart defaults no longer contain reusable credentials; disposable development values are separated into values-local.yaml. These changes still require local Helm rendering and deployment tests.
+The gateway is the policy enforcement point between users/chat clients and the WooCommerce, Weather and Currency MCP servers. Gateway API keys identify Urumi users; upstream credentials are server-side credentials and are not user identity tokens. Kubernetes NetworkPolicies provide an additional network boundary, but their presence in YAML is not proof that a cluster CNI enforces them.
+
+## Threats, controls and residual risk
+
+| Threat / attacker capability | Current control | Residual risk / acceptance evidence |
+|---|---|---|
+| A database dump exposes users' Gateway API keys | Raw Gateway keys are shown once; stored keys are HMAC-SHA256 hashes. Key validity is checked on requests. | A database dump should not reveal raw keys, but compromise of the Gateway secret or running process changes the risk. Key expiry, rate limiting and a documented rotation procedure remain useful hardening. |
+| A MEMBER tries to use an upstream credential they were never given | Upstream credentials are stored encrypted at rest and managed server-side. User-facing API responses should expose neither the stored secret nor the decryption material. Tool calls are routed by the gateway using the server's configured upstream credential. | An authorized tool may return data available to that tool. A compromised Gateway process, administrator account or encryption key can expose credentials. Keep upstream credentials least-privileged and test that admin APIs, chat traces, audit rows and errors never serialize them. |
+| A client sends its Gateway token to an upstream, or tries to impersonate an upstream identity | Gateway API keys authenticate the caller to Urumi only. The gateway does not use that client token as the upstream credential; upstream authentication is configured separately and remains server-side. | Verify headers and error/log paths in integration tests. Forwarding client tokens would leak a Urumi credential across trust boundaries and could bypass the intended upstream identity model. |
+| One team member tries to act as another member or administer the team | Roles protect admin routes; tool listing and execution both apply permissions. Missing MEMBER tool grants default-deny. API-key validity is checked on requests, so revoked keys should stop working. | Members must not be able to enumerate, revoke or edit another user's keys, permissions or invitations. Complete route-by-route cross-user authorization tests and retain audit attribution for successful and denied calls. Shared WooCommerce data remains shared store data; tool permission is not customer-level data isolation. |
+| A member directly calls a tool hidden from `tools/list` | Authorization is checked during execution as well as listing; hidden tool names are not intended to bypass policy. | Test direct calls for ungranted and revoked permissions and confirm no upstream request occurs and a denial is audited. |
+| SSRF via a registered or modified upstream URL | URL validation is applied during registration, health refresh and immediately before tool calls. Non-HTTP(S), embedded URL credentials, metadata hostnames and selected unsafe IP ranges are rejected. | Private service DNS is intentionally needed for in-cluster MCPs. Loopback blocking has not been established as complete; treat loopback and DNS-rebinding resistance as open validation gaps. Use strict hostname allowlists and cluster egress rules for hostile or multi-tenant environments. |
+| Malicious MCP tool descriptions influence the model | Tool schemas are supplied by the gateway, and tool execution still goes through the gateway's authorization/routing path. Tool results are untrusted data. | Descriptions can influence model behavior even if they cannot grant permissions. Treat both tool descriptions and tool outputs as untrusted instructions; test malicious descriptions, prompt injection and attempts to induce unauthorized/destructive calls. Add explicit confirmation for destructive actions before expanding such tools. |
+| Malicious tool output or prompt injection attempts to exfiltrate data | Chat tool calls route through the gateway; permissions and routing remain server-enforced. | Model behavior is probabilistic and tool output is untrusted. Test cross-tool injection and ensure secrets are not present in model context, tool traces, logs or errors. |
+| A compromised workload moves laterally to databases or other workloads | NetworkPolicy templates use default-deny/scoped ingress, narrow MySQL ingress to WordPress and the setup Job, and deny database egress. MCP/DB services are internal rather than intentionally public. Workload security settings include non-root execution where configured. | Helm rendering validates policy objects, not packet-level enforcement. Record the cluster CNI, test an allowed and a denied connection, and verify that no public Ingress/Service exposes MCP or database ports. |
+| One upstream hangs or fails | Bounded connection/call timeouts, per-call sessions and per-upstream health/failure handling reduce cross-server impact. | Rate limits, circuit breakers and concurrency caps are further hardening. Test that one stopped or slow server does not block unrelated upstream tools. |
+| A revoked key is reused | Request authentication checks key validity rather than trusting a previously established UI state. | A live MCP-client test should revoke the key, make another request and confirm rejection. UI state alone is not evidence of server-side revocation. |
+| Helm/deployment values leak secrets | Kubernetes Secret wiring is present, and the production values file uses placeholders. | The local values file contains disposable demo credentials, and the chart currently creates Secret content from Helm values; Helm release data can retain supplied values. A separate secret audit/rotation and Git-history review remains open. Do not claim production secret-manager integration is complete. |
+
+## Security invariants
+
+1. A Gateway API key is not an LLM-provider key and must not be forwarded upstream.
+2. A user cannot gain a tool permission by guessing a hidden tool name or calling the tool directly.
+3. Upstream credentials remain server-side and are not returned in API responses, chat text, audit records or exception messages.
+4. A denied or failed call should not be reported as successful; its audit outcome should match the actual result.
+5. NetworkPolicy source is not evidence of enforcement until the target cluster's network behavior is tested.
+6. Production deployment requires unique credentials, a reviewed secret-delivery strategy, TLS, DNS, storage and a reviewed change plan.
+
+## Verification status
+
+Member tool permissions, key revocation, Weather failure isolation and dashboard server controls have been demonstrated in recorded local-cluster videos. Gateway/Helm/Woo MCP tests and Helm rendering results are recorded in [STATUS.md](STATUS.md). These are distinct evidence types: neither a video nor a successful render proves every security invariant. Loopback/SSRF coverage, malicious tool-description behavior, cross-member route isolation and live NetworkPolicy enforcement remain explicit follow-ups.
