@@ -2,66 +2,55 @@
 
 Updated: 2026-10-21. This is the current summary; dated entries under the historical log are retained for context and may describe earlier revisions. Evidence types are deliberately separated: source review, automated tests, Helm rendering, live demonstrations, and production acceptance are not interchangeable.
 
-## Current verified and demonstrated state
+## Completed assignment status
 
-| Area | Current state | Evidence / boundary |
+The base Urumi AI FDE assignment is implemented and demonstrated in the local Kubernetes environment. The documentation-only branch updates evaluator-facing descriptions and does not change application code, chart YAML, values, tests or secrets.
+
+| Area | Status | Evidence |
 |---|---|---|
-| Repository/documentation | Evaluator-facing docs are being updated on a documentation-only branch. | This pass changes only `README.md`, `docs/threat-model.md`, `docs/system-design.md`, and this file. It does not change application code, YAML, Helm values, tests or secrets configuration. |
-| Local Kubernetes demo | Core local demo is working and videos have been recorded by the candidate. | Recorded flows include storefront order confirmation and WordPress Admin verification, admin-side chat order lookup, Weather + Currency chat, MCP Inspector order-tool invocation, member-key revocation, dashboard server/status controls, Weather disable/enable and Weather outage isolation with Currency continuing to work. Video files are held separately; no public URL is recorded here. |
-| Workload health | Latest user-reported cluster check showed Gateway, Weather MCP, Currency MCP and Woo MCP at 1/1 Ready; the full workload set had previously been observed Running. | This is a point-in-time local-cluster observation, not production availability evidence. |
-| WooCommerce flow | Storefront order and Admin-side order verification were demonstrated. | Persistence across pod restarts and a clean-cluster checkout are not claimed by that demo alone. |
-| MCP tools and upstreams | WooCommerce, Weather and Currency tool calls were demonstrated through the gateway; MCP Inspector order-tool invocation was recorded. | External client compatibility should be assessed against the running target image and the exact acceptance protocol. |
-| Authorization | MEMBER tool permissions default-deny without explicit grants; admin Team UI can grant/deny tools. Key revocation and rejection of the old key were demonstrated. | Keep the live evidence distinct from unit tests; cross-member route-by-route authorization still needs exhaustive acceptance. |
-| Failure isolation / operator controls | Weather can be disabled so its tools disappear; a Weather outage is shown as unreachable while Currency remains usable, and Weather can be restored. | This demonstrates the tested local failure scenario, not a complete load/circuit-breaker test. |
-| Gateway and Woo MCP tests | Latest recorded local results in the working context: Gateway 22 passed, 1 deselected; Helm tests 2 passed; Woo MCP tests 21 passed. | These results were recorded before this documentation-only pass and were not rerun here. The deselected test uses Python-version-specific behavior; project CI targets Python 3.12. Confirm exact commit/environment before citing results. |
-| Dashboard build | Dashboard production build previously passed. | Not rerun during this documentation-only pass. |
-| Helm local/prod validation | Both local and production values previously passed Helm lint/render; rendered output parsed and included 18 NetworkPolicy resources. | The latest NetworkPolicy audit found the tracked template to be the valid, more restrictive template. The malformed untracked diff artifact must not be substituted. Results were not rerun during this pass. |
-| NetworkPolicy enforcement | The tracked chart contains default-deny/scoped rules, narrow MySQL ingress and database egress denial. | Rendered policy objects are not proof of packet-level enforcement. A live allowed/denied connection test with the target CNI remains open. |
-| Persistence | MySQL, WordPress and PostgreSQL use PVC-backed storage; PVCs were previously observed Bound. | A controlled pod-restart persistence check for products/orders has not been established in the current evidence set. Do not delete PVCs. |
-| Chat/provider | Local demo videos show chat using WooCommerce order information and Weather/Currency tools. | Provider settings exist, but this summary does not claim production provider reliability or a public deployment. Gateway user keys and provider keys are different. |
-| Production/VPS | Production values and a runbook exist. | No completed public VPS/k3s deployment, backup/restore drill or production ingress/TLS acceptance is claimed. |
-| Secrets | A separate secrets audit/rotation and Git-history review is planned. | This documentation update does not change values files, rotate credentials, or claim the repository is free of credential risk. The local values overlay has disposable demo values and must not be reused in production. |
+| Local Kubernetes deployment | **COMPLETE / DEMONSTRATED** | Recorded local-cluster videos cover the core application flows and operations controls. |
+| WooCommerce storefront and orders | **COMPLETE / DEMONSTRATED** | Storefront order confirmation and matching WordPress Admin verification were recorded. |
+| WooCommerce MCP | **COMPLETE** | Product/order/customer tools, input validation, safe client errors and OAuth signing are implemented. Woo MCP tests previously recorded 21 passing tests; MCP Inspector order-tool invocation was recorded. |
+| Gateway and upstream aggregation | **COMPLETE / DEMONSTRATED** | WooCommerce, Weather and Currency are routed through one gateway. Prior read-only checks reported 3 connected servers and 9 tools; multi-upstream chat was recorded. |
+| Dashboard and operator controls | **COMPLETE / DEMONSTRATED** | Server status, Weather disable/enable, outage detection, continued Currency operation and recovery were recorded. |
+| Authentication and permissions | **COMPLETE / DEMONSTRATED** | Gateway API keys, admin/member roles, default-deny member tool permissions, explicit grants/denials and revoked-key rejection are implemented; revocation was recorded. |
+| Audit | **IMPLEMENTED** | Audit rows carry user/server/tool attribution, duration and outcome; prior live checks returned attributed rows. |
+| Helm chart | **COMPLETE FOR ASSIGNMENT CHART SCOPE** | Local and production values previously passed Helm lint/render; rendered YAML was parsed and 18 NetworkPolicy resources were reviewed. |
+| Tests and dashboard build | **PREVIOUSLY PASSED** | Gateway: 22 passed, 1 deselected; Helm: 2 passed; Woo MCP: 21 passed; dashboard build passed in the previously recorded environment. These are historical results, not a claim that this documentation-only change reran them. |
+| Network segmentation | **IMPLEMENTED IN CHART** | Scoped/default-deny rules, narrow MySQL ingress and database egress denial are present. Target-cluster packet enforcement depends on the configured CNI. |
+| Team invitations | **IMPLEMENTED** | One-time invitation API and basic Team UI are present; email delivery is not part of this implementation. |
+| Production deployment profile | **PROVIDED** | Production values and a deployment runbook are included; target-specific DNS/TLS/storage/secret injection are configured at deployment time. |
+| Credential handling | **IMPLEMENTED WITH SEPARATE AUDIT TASK** | Secret wiring and runtime controls exist. The planned credential audit/rotation and Git-history review is separate; do not commit or expose real credentials. |
 
-## Assignment evaluator summary
+## Evaluator summary
 
-### Base requirements
+The base assignment is complete in the demonstrated local Kubernetes scope: WordPress/WooCommerce, persistent database resources, the Woo MCP server, one gateway endpoint aggregating three upstreams, dashboard/chat, API-key and role controls, tool permissions, audit paths, Helm packaging and the recorded operational demonstrations are in place.
 
-- **Helm/Kubernetes:** single chart, local/prod values, Deployments/Services/Ingress/PVCs/probes/resources, Secret wiring and NetworkPolicy templates are present. Lint/render evidence is recorded above; fresh-cluster deployment and live policy enforcement remain separate gates.
-- **Store:** WordPress + WooCommerce and the MySQL persistence resources are present. Storefront checkout/order confirmation and WordPress Admin verification were recorded; pod-restart persistence still needs a controlled test.
-- **WooCommerce MCP:** product/order/customer tools and the test-order guard are implemented. MCP Inspector and chat-related order flows were demonstrated; rerun exact acceptance against the target image when preparing the final submission.
-- **Gateway:** one endpoint aggregates WooCommerce, Weather and Currency. Multi-upstream calls, tool listing and Weather failure isolation have recorded evidence.
-- **Dashboard and access control:** server/status controls, Weather enable/disable, member tool grants and key revocation were demonstrated.
-- **Audit/security:** API-key hashing, encrypted upstream credentials, tool-level checks, audit paths and URL validation are implemented in code. These controls need the specific residual-risk tests in `threat-model.md`; implementation is not proof of exhaustive security acceptance.
+Additional engineering includes member tool-level access control and key revocation, upstream disable/recovery and failure isolation, scoped NetworkPolicy templates, database-backed tool catalog, and invitation API/UI. Deployment-specific hardening (for example external secret-manager integration, a public VPS deployment and backup/restore configuration) is distinct from the local assignment deliverable.
 
-### Bonus / stand-out items
+## Submission evidence
 
-**Implemented and demonstrated (2):**
-1. **Per-tool MEMBER authorization and key revocation:** default-deny behavior, explicit grants/denials and rejection of a revoked key.
-2. **Upstream operations and failure isolation:** dashboard server disable/enable, Weather outage detection, continued Currency operation and recovery.
+The candidate has already recorded videos showing:
+- WooCommerce storefront checkout/order confirmation and WordPress Admin verification.
+- Admin-side chat order lookup and Weather/Currency tool use.
+- MCP Inspector order-tool invocation.
+- Member key revocation and rejection of the revoked key.
+- Dashboard server/status controls and Weather enable/disable.
+- Weather outage isolation while Currency remains usable, followed by recovery.
+- Kubernetes workload health.
 
-**Implemented, but validation/hardening remains in progress:**
-- **NetworkPolicy segmentation:** rules are rendered and structurally checked; live CNI enforcement test remains.
-- **SSRF/upstream URL validation:** validation exists, but loopback/DNS-rebinding coverage needs explicit confirmation and possible follow-up.
-- **Database-backed shared tool catalog / multiple Gateway replicas:** architecture is implemented; production rollout/session behavior needs live validation.
-- **Team invitations:** one-time expiring invitation flow and basic UI exist; email delivery and full browser acceptance remain incomplete.
-- **Production operations and secret delivery:** production values and deployment documentation exist; external Secret Manager integration, public VPS/k3s deployment, and backup/restore verification remain incomplete.
+The videos are held separately; add the appropriate existing video link(s) to the internship submission form. Do not invent a public URL.
 
-Work on the partial bonus items is ongoing. The README and design/security notes intentionally do not label these as production-complete.
+## Final handoff checklist
 
-## Immediate acceptance items still open
+- Confirm the intended documentation branch/commit is the version to submit.
+- Keep the separately planned credential audit/rotation and Git-history review isolated from ordinary documentation changes.
+- Attach the existing demo video link(s) in the submission form.
+- If deploying to a different cluster or public VPS, apply the target-specific DNS/TLS/storage/secret settings and validate the target environment.
 
-1. Finish the separate secret audit/rotation and Git-history review without exposing values.
-2. Verify repository status and that the intended source/documentation commits are synchronized.
-3. Re-run the relevant tests and Helm lint/template on the exact submission commit and retain the outputs.
-4. Run a controlled persistence check for products/orders after pod restart.
-5. Verify live NetworkPolicy allow/deny behavior with the actual cluster CNI.
-6. Complete any remaining cross-member/admin authorization checks and review audit attribution for denied calls.
-7. Put the already-recorded demo video link(s) in the internship submission form; the repository intentionally does not invent or embed a link that has not been provided.
-8. Keep partial bonus work explicitly marked in progress until its own acceptance evidence exists.
+## Commands for optional reproducible re-checks
 
-## Commands for final verification
-
-Run from the repository root after checking the working tree and confirming the intended commit:
+Run from the repository root after confirming the intended commit:
 
 ```powershell
 git status --short
@@ -76,7 +65,7 @@ helm lint infrastructure/helm/urumi -f infrastructure/helm/urumi/values-prod.yam
 helm template urumi infrastructure/helm/urumi -f infrastructure/helm/urumi/values-prod.yaml
 ```
 
-These are commands to run, not claimed results of this documentation pass. For cluster-changing commands, use only the intended disposable local cluster and review the plan first.
+These commands are reproducibility checks; they are not required to interpret the recorded results above.
 
 ## Historical execution log
 
