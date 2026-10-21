@@ -1,179 +1,86 @@
-# Urumi Gateway — current state and handoff
+# Urumi Gateway — current state and evaluator handoff
 
-Updated: 2026-10-19. This section is the current record; dated entries below it
-are historical and may describe an earlier state. A passing local build or
-render is not evidence of live-store acceptance.
+Updated: 2026-10-21. This is the current summary; dated entries under the historical log are retained for context and may describe earlier revisions. Evidence types are deliberately separated: source review, automated tests, Helm rendering, live demonstrations, and production acceptance are not interchangeable.
 
-## Current verified state
+## Current verified and demonstrated state
 
-| Area | State | Evidence / boundary |
+| Area | Current state | Evidence / boundary |
 |---|---|---|
-| Source worktree | Local changes only; not committed or pushed | `main` remains at `bb514d2` and matches the local `origin/main` tracking ref. This task adds WooCommerce tools, test-order response verification, discovered-tool enforcement, safe errors, an existing-release deployment confirmation gate, tests, and acceptance docs. Pre-existing modified paths and untracked artifacts were preserved; nothing was staged or discarded. |
-| Live local cluster | Not checked in this task | Last recorded read-only observation (2026-10-16): context `k3d-urumi`, namespace `default`; Helm release `urumi` revision 7, `deployed`; gateway and dashboard each showed 1/1 Ready. No cluster resources were changed here. |
-| Dashboard “Invalid key” | Source fix exists; NOT deployed | The browser's sign-in field contained a value that was not a `urumi_live_` Gateway key. The dashboard sent it to `/api/me`; the provider credential is not a Gateway login key. The shared browser's saved `urumi_key` was cleared. The cluster still serves the old dashboard image/UI. |
-| Gateway authentication | Live admin auth verified | Gateway container code is under `/srv/app` (image entrypoint `app.main:app`). Without displaying either credential or stored hashes, the configured bootstrap key was compared to the admin's active hashed key; it matched. Authenticated `/api/me` returned HTTP 200 and role `ADMIN`. |
-| Bootstrap-key recovery | Explicit opt-in; not deployed | API-key records do not identify the bootstrap-issued key, so automatic replacement/revocation would be unsafe. `bootstrapAdminKeyRecovery: true` adds the configured key only to an existing ADMIN when its hash is not already assigned; all existing keys/data are preserved. PostgreSQL transaction advisory locking serializes replicas. Disable the flag after verifying sign-in. |
-| Python tests | PASS locally | Gateway and Helm: 57 passed. WooCommerce MCP: 42 passed when run from `services\woo-mcp`, including required tool schemas, mocked reads, test-order response validation, and OAuth smoke signing. |
-| Dashboard | PASS locally | From `dashboard`: `npm run build` completed TypeScript checking and Vite production build. Mocked API/key-format assertions passed; no actual dashboard credential was used in these tests. |
-| Container builds | PASS locally | Gateway and WooCommerce MCP Docker images built with local-validation tags; nothing was pushed or deployed. |
-| Helm | PASS locally | Local and production lint/render passed with the exact commands below. Both rendered outputs parsed as YAML and contained 18 NetworkPolicies. |
-| Current live acceptance | NOT RUN | No live provider request, product/customer/order operation, dashboard sign-in, cluster network probe, or persistence restart was performed in this task. |
-| Local deployment guard | PASS by source review and shell syntax | `scripts/dev.sh` targets `k3d-urumi`, checks the existing cluster/release, warns about resource changes, and requires an interactive exact confirmation before an existing-release upgrade. Script was syntax-checked, not executed. |
-| Kubernetes manifest validation | PASS client-side | `kubectl apply --dry-run=client --validate=true` accepted both rendered profiles. This did not apply resources. |
-| Live Helm plan | BLOCKED; no upgrade | A redacted server dry-run against revision 7 proposed changes to 23 resources, including `urumi-secrets`, Gateway Deployment, and NetworkPolicies. The plan was rejected; no upgrade ran. |
-| Store / WooCommerce acceptance | PARTIALLY verified | A prior read-only live check listed a WooCommerce product and routed Weather/Currency calls. Fresh checkout, order mutation, and persistence across pod restart remain unverified. |
-| LLM provider | Configured in source values; live chat unverified | Local/prod values specify the OpenRouter base URL and model; `llm-api-key` is referenced through `urumi-secrets`. No live chat/model call was made in this investigation. |
+| Repository/documentation | Evaluator-facing docs are being updated on a documentation-only branch. | This pass changes only `README.md`, `docs/threat-model.md`, `docs/system-design.md`, and this file. It does not change application code, YAML, Helm values, tests or secrets configuration. |
+| Local Kubernetes demo | Core local demo is working and videos have been recorded by the candidate. | Recorded flows include storefront order confirmation and WordPress Admin verification, admin-side chat order lookup, Weather + Currency chat, MCP Inspector order-tool invocation, member-key revocation, dashboard server/status controls, Weather disable/enable and Weather outage isolation with Currency continuing to work. Video files are held separately; no public URL is recorded here. |
+| Workload health | Latest user-reported cluster check showed Gateway, Weather MCP, Currency MCP and Woo MCP at 1/1 Ready; the full workload set had previously been observed Running. | This is a point-in-time local-cluster observation, not production availability evidence. |
+| WooCommerce flow | Storefront order and Admin-side order verification were demonstrated. | Persistence across pod restarts and a clean-cluster checkout are not claimed by that demo alone. |
+| MCP tools and upstreams | WooCommerce, Weather and Currency tool calls were demonstrated through the gateway; MCP Inspector order-tool invocation was recorded. | External client compatibility should be assessed against the running target image and the exact acceptance protocol. |
+| Authorization | MEMBER tool permissions default-deny without explicit grants; admin Team UI can grant/deny tools. Key revocation and rejection of the old key were demonstrated. | Keep the live evidence distinct from unit tests; cross-member route-by-route authorization still needs exhaustive acceptance. |
+| Failure isolation / operator controls | Weather can be disabled so its tools disappear; a Weather outage is shown as unreachable while Currency remains usable, and Weather can be restored. | This demonstrates the tested local failure scenario, not a complete load/circuit-breaker test. |
+| Gateway and Woo MCP tests | Latest recorded local results in the working context: Gateway 22 passed, 1 deselected; Helm tests 2 passed; Woo MCP tests 21 passed. | These results were recorded before this documentation-only pass and were not rerun here. The deselected test uses Python-version-specific behavior; project CI targets Python 3.12. Confirm exact commit/environment before citing results. |
+| Dashboard build | Dashboard production build previously passed. | Not rerun during this documentation-only pass. |
+| Helm local/prod validation | Both local and production values previously passed Helm lint/render; rendered output parsed and included 18 NetworkPolicy resources. | The latest NetworkPolicy audit found the tracked template to be the valid, more restrictive template. The malformed untracked diff artifact must not be substituted. Results were not rerun during this pass. |
+| NetworkPolicy enforcement | The tracked chart contains default-deny/scoped rules, narrow MySQL ingress and database egress denial. | Rendered policy objects are not proof of packet-level enforcement. A live allowed/denied connection test with the target CNI remains open. |
+| Persistence | MySQL, WordPress and PostgreSQL use PVC-backed storage; PVCs were previously observed Bound. | A controlled pod-restart persistence check for products/orders has not been established in the current evidence set. Do not delete PVCs. |
+| Chat/provider | Local demo videos show chat using WooCommerce order information and Weather/Currency tools. | Provider settings exist, but this summary does not claim production provider reliability or a public deployment. Gateway user keys and provider keys are different. |
+| Production/VPS | Production values and a runbook exist. | No completed public VPS/k3s deployment, backup/restore drill or production ingress/TLS acceptance is claimed. |
+| Secrets | A separate secrets audit/rotation and Git-history review is planned. | This documentation update does not change values files, rotate credentials, or claim the repository is free of credential risk. The local values overlay has disposable demo values and must not be reused in production. |
 
-### Dashboard authentication finding and safe recovery
+## Assignment evaluator summary
 
-`dashboard/src/App.tsx` accepts a **Urumi Gateway API key**, not `LLM_API_KEY`.
-`dashboard/src/api.ts` sends the candidate as `Authorization: Bearer ...` to
-`GET /api/me`. The gateway hashes that token with HMAC-SHA256 using
-`SECRET_KEY`, looks for the hash in `api_keys`, and rejects missing, unknown,
-or revoked keys with HTTP 401 (`services/gateway/app/auth/rbac.py`). An
-unauthenticated or invalid-key 401 says nothing about OpenRouter authentication.
+### Base requirements
 
-The fix in the working tree rejects values without the Gateway `urumi_live_`
-prefix before sending them, clears malformed saved browser values, persists a
-new key only after successful `/api/me`, and distinguishes HTTP 401 from
-network/server failures. Regression tests are in
-`tests/gateway/test_core.py`. These source edits have **not** reached the live
-dashboard image. Use a Gateway key for sign-in; never use a provider key there.
+- **Helm/Kubernetes:** single chart, local/prod values, Deployments/Services/Ingress/PVCs/probes/resources, Secret wiring and NetworkPolicy templates are present. Lint/render evidence is recorded above; fresh-cluster deployment and live policy enforcement remain separate gates.
+- **Store:** WordPress + WooCommerce and the MySQL persistence resources are present. Storefront checkout/order confirmation and WordPress Admin verification were recorded; pod-restart persistence still needs a controlled test.
+- **WooCommerce MCP:** product/order/customer tools and the test-order guard are implemented. MCP Inspector and chat-related order flows were demonstrated; rerun exact acceptance against the target image when preparing the final submission.
+- **Gateway:** one endpoint aggregates WooCommerce, Weather and Currency. Multi-upstream calls, tool listing and Weather failure isolation have recorded evidence.
+- **Dashboard and access control:** server/status controls, Weather enable/disable, member tool grants and key revocation were demonstrated.
+- **Audit/security:** API-key hashing, encrypted upstream credentials, tool-level checks, audit paths and URL validation are implemented in code. These controls need the specific residual-risk tests in `threat-model.md`; implementation is not proof of exhaustive security acceptance.
 
-The browser inspection exposed a provider-shaped value in the sign-in field.
-It is intentionally not reproduced or committed. Treat the provider credential
-as potentially exposed: rotate/revoke it through the provider's secure console
-as a security follow-up, then update the Kubernetes Secret only under a
-separately approved change plan. No credential rotation has occurred.
+### Bonus / stand-out items
 
-## Assignment acceptance and current gaps
+**Implemented and demonstrated (2):**
+1. **Per-tool MEMBER authorization and key revocation:** default-deny behavior, explicit grants/denials and rejection of a revoked key.
+2. **Upstream operations and failure isolation:** dashboard server disable/enable, Weather outage detection, continued Currency operation and recovery.
 
-| Requirement | Implementation / evidence | Remaining acceptance |
-|---|---|---|
-| One gateway aggregates WooCommerce, Weather, Currency MCPs | `services/gateway/app/mcp`, `services/gateway/app/routing`; local tests and a prior live tool listing | Verify initialize/list/call with MCP Inspector or another external client against the deployed current image. |
-| WooCommerce MCP with product/order/customer tools | `services/woo-mcp/app/tools/products.py` and `orders.py`; required `get_products`, `get_orders`, `get_customer`, `create_order` are registered alongside the existing five tools. `create_order` requires `test_order=true`, accepts no customer details, and only reports success after WooCommerce confirms pending/unpaid state and `_urumi_test_order`. Mocked tests passed. | Run [live-acceptance-tests.md](live-acceptance-tests.md) only against a disposable store; live tools and order persistence remain unverified. |
-| WordPress/WooCommerce and MySQL persistence | Helm WordPress, setup Job, MySQL, and separate PVC templates | Complete checkout and prove product/order/uploads persist after pod restart; document backup/restore separately. |
-| Gateway users, keys, roles, permissions, audit | `services/gateway/app/api/admin.py`, `auth/`, `audit/`, `models/tables.py`; 57 Gateway/Helm tests and 42 WooCommerce MCP tests passed. Calls must match the discovered upstream catalog before permission checks and execution. | Run acceptance against live current images: member/admin boundaries, revoke behavior, explicit member tool permission, and attributed success/failure audit rows. |
-| OpenAI-compatible tool-calling chat | `services/gateway/app/api/chat.py`; settings `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Test a real configured tool-calling model only after deployment/provider approval; require provider support for tool calling. |
-| Kubernetes isolation and storage | `infrastructure/helm/urumi/templates/`; 18 rendered NetworkPolicies, separate MySQL/PostgreSQL/WordPress PVCs | A rendered policy is not proof of enforcement. Verify live selectors and traffic in a separately approved acceptance test. |
-| CI and portable setup | `.github/workflows/ci.yml`; README and runbooks | CI workflow was not run remotely in this handoff. Fresh clone setup is documented but not freshly exercised. |
+**Implemented, but validation/hardening remains in progress:**
+- **NetworkPolicy segmentation:** rules are rendered and structurally checked; live CNI enforcement test remains.
+- **SSRF/upstream URL validation:** validation exists, but loopback/DNS-rebinding coverage needs explicit confirmation and possible follow-up.
+- **Database-backed shared tool catalog / multiple Gateway replicas:** architecture is implemented; production rollout/session behavior needs live validation.
+- **Team invitations:** one-time expiring invitation flow and basic UI exist; email delivery and full browser acceptance remain incomplete.
+- **Production operations and secret delivery:** production values and deployment documentation exist; external Secret Manager integration, public VPS/k3s deployment, and backup/restore verification remain incomplete.
 
-## Repository map
+Work on the partial bonus items is ongoing. The README and design/security notes intentionally do not label these as production-complete.
 
-| Concern | Paths |
-|---|---|
-| Gateway API, bootstrap, auth, authorization, keys, invitations, audit | `services/gateway/app/main.py`, `config.py`, `api/`, `auth/`, `models/tables.py`, `routing/`, `audit/` |
-| MCP endpoint and upstream transport | `services/gateway/app/mcp/server.py`, `client.py` |
-| Chat/provider loop | `services/gateway/app/api/chat.py`, `config.py` |
-| WooCommerce tools and REST signing | `services/woo-mcp/app/tools/`, `app/woocommerce.py`, `app/main.py` |
-| Dashboard and same-origin API client | `dashboard/src/App.tsx`, `src/api.ts`, `nginx.conf` |
-| Kubernetes chart | `infrastructure/helm/urumi/Chart.yaml`, `values.yaml`, `values-local.yaml`, `values-prod.yaml`, `templates/` |
-| CI and local helper scripts | `.github/workflows/ci.yml`, `scripts/dev.sh`, `scripts/test.sh`, `scripts/seed.sh` |
-| Acceptance docs | `docs/store-deployment-runbook.md`, `live-acceptance-tests.md`, `implementation-checklist.md`, `assessment-gap-matrix.md` |
+## Immediate acceptance items still open
 
-## Deployment and configuration facts
+1. Finish the separate secret audit/rotation and Git-history review without exposing values.
+2. Verify repository status and that the intended source/documentation commits are synchronized.
+3. Re-run the relevant tests and Helm lint/template on the exact submission commit and retain the outputs.
+4. Run a controlled persistence check for products/orders after pod restart.
+5. Verify live NetworkPolicy allow/deny behavior with the actual cluster CNI.
+6. Complete any remaining cross-member/admin authorization checks and review audit attribution for denied calls.
+7. Put the already-recorded demo video link(s) in the internship submission form; the repository intentionally does not invent or embed a link that has not been provided.
+8. Keep partial bonus work explicitly marked in progress until its own acceptance evidence exists.
 
-- One Helm chart is used with shared `values.yaml` plus local or production
-  overrides. Local profile is for disposable demo credentials; production
-  profile requires unique credentials, PostgreSQL, TLS, and persistent storage.
-- The chart renders Deployments for gateway, dashboard and MCP workloads;
-  MySQL and PostgreSQL have persistent data claims, and WordPress has a separate
-  content claim. The database and MCP services are cluster-internal.
-- `templates/secrets.yaml` creates `urumi-secrets`. The gateway obtains
-  `SECRET_KEY`, `BOOTSTRAP_ADMIN_KEY`, DB password, and `LLM_API_KEY` via
-  `secretKeyRef`; the LLM Secret key is `llm-api-key`. Do not print Secret
-  values or store real credentials in values files. Helm release data can
-  retain values supplied during installation.
-- Local and production profiles currently set `llm.baseUrl` to
-  `https://openrouter.ai/api/v1` and `llm.model` to `openrouter/free`. The key
-  belongs only in the `urumi-secrets` Secret. The chart currently creates that
-  Secret from Helm values; external Secret-manager integration is not present.
-- `values-local.yaml` contains explicitly demo-only credentials and must not be
-  used against a shared or production cluster. Its reviewed change for this
-  handoff only sets the OpenRouter URL/model and changes an empty provider-key
-  placeholder; no nonempty credential was added. The credential scan also
-  identified the existing local Gateway-key fixture and synthetic test keys;
-  none are provider keys. Never copy demo or live credentials into production
-  values or publish a live credential.
-- NetworkPolicies limit intended ingress and inter-service egress; DNS is
-  restricted to the configured cluster resolver, HTTPS egress is limited to
-  workloads that need it, and MySQL/PostgreSQL have deny-egress policies. These
-  are render assertions, not proof that the live CNI enforces them.
-- Admin bootstrap is not a credential rotation mechanism. The configured
-  bootstrap key is hashed with `SECRET_KEY` and added only when the admin user
-  does not yet exist. For an existing admin, explicit recovery is required:
-  enable Helm value `bootstrapAdminKeyRecovery`, apply the intended bootstrap
-  Secret through an approved plan, verify `/api/me`, then disable the flag.
-  Recovery adds a key without revoking existing keys. It refuses a non-admin
-  account, a configured key already owned by another user, or a matching
-  revoked key; choose a different key rather than reactivating a revoked one.
-  This code/chart change has not been deployed.
-- There is no Alembic migration workflow. SQLAlchemy `create_all` creates new
-  tables at startup, but schema evolution for existing columns needs a planned
-  migration process.
+## Commands for final verification
 
-## Commands observed for the current working tree
-
-Run from repository root unless noted. Local/prod lint and render were executed
-with the shared base values and the relevant overlay:
+Run from the repository root after checking the working tree and confirming the intended commit:
 
 ```powershell
-py -3.12 -m pytest -q tests/gateway tests/helm
-Push-Location .\services\woo-mcp
-py -3.12 -m pytest -q ..\..\tests\woo_mcp
-Pop-Location
-bash -n scripts/dev.sh
-docker build --tag urumi/gateway:local-validation services/gateway
-docker build --tag urumi/woo-mcp:local-validation services/woo-mcp
-Set-Location .\dashboard
-npm run build
-Set-Location ..
-helm lint infrastructure/helm/urumi -f infrastructure/helm/urumi/values.yaml -f infrastructure/helm/urumi/values-local.yaml
-helm lint infrastructure/helm/urumi -f infrastructure/helm/urumi/values.yaml -f infrastructure/helm/urumi/values-prod.yaml
-helm template urumi infrastructure/helm/urumi -f infrastructure/helm/urumi/values.yaml -f infrastructure/helm/urumi/values-local.yaml
-helm template urumi infrastructure/helm/urumi -f infrastructure/helm/urumi/values.yaml -f infrastructure/helm/urumi/values-prod.yaml
-py -3.12 -m compileall -q services\gateway\app services\woo-mcp\app scripts\smoke_test_woocommerce.py
-git diff --check
-```
-
-Observed in this sprint: 57 Gateway/Helm tests and 42 WooCommerce MCP tests
-passed; gateway and Woo MCP Docker builds passed; local setup shell syntax,
-Python compilation, and `git diff --check` passed. Helm lint/render, dashboard
-build, and client-side Kubernetes dry-run passed in the preceding session;
-Helm templates and dashboard source were unchanged here. No `helm upgrade`,
-`kubectl apply` without `--dry-run`, database mutation, live provider request,
-or credential change was performed.
-
-## Cross-computer recovery and deployment gate
-
-The reviewed changes are intended for `main`; the nonstandard untracked
-command-output files and uncertain auth snapshot are deliberately excluded.
-Do not stage an entire dirty worktree. Before relying on a clean clone, verify
-that the reviewed commit is present on `origin/main`. The dashboard source fix
-must remain clearly distinguished from the still-undeployed dashboard image.
-
-Do not upgrade Helm from this worktree yet. The dry-run against release revision
-7 showed 23 resource changes, including `urumi-secrets` and NetworkPolicies.
-First reconcile the deployed values/chart state without exposing secret values,
-then produce and review a redacted plan that changes only the intended
-dashboard resource and preserves the live Secret and all unrelated resources.
-Deployment and provider-key rotation each require separate approval.
-
-On a second Windows computer, once an approved commit has been pushed:
-
-```powershell
-git clone https://github.com/MananBhutada/urumi-mcp-gateway.git
-Set-Location .\urumi-mcp-gateway
-git switch main
-git pull --ff-only origin main
 git status --short
+git log -1 --oneline
+python -m pytest -q tests/gateway
+python -m pytest -q tests/helm
+python -m pytest -q tests/woo_mcp
+npm run build --prefix dashboard
+helm lint infrastructure/helm/urumi -f infrastructure/helm/urumi/values-local.yaml
+helm template urumi infrastructure/helm/urumi -f infrastructure/helm/urumi/values-local.yaml
+helm lint infrastructure/helm/urumi -f infrastructure/helm/urumi/values-prod.yaml
+helm template urumi infrastructure/helm/urumi -f infrastructure/helm/urumi/values-prod.yaml
 ```
 
-For an existing clean clone, use `git pull --ff-only origin main`. If it has
-local changes, inspect and preserve them before pulling; do not reset or
-overwrite another computer's work.
+These are commands to run, not claimed results of this documentation pass. For cluster-changing commands, use only the intended disposable local cluster and review the plan first.
 
 ## Historical execution log
+
+
 
 Entries below are retained as history. Their results are not substitutes for
 the current table or for acceptance on the current live images.
